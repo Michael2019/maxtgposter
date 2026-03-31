@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Шаблон{% endblock %}
+{% block content %}
+<div class="card border-0 shadow-sm">
+  <div class="card-body">
+    <h1 class="h4">{{ "Новый шаблон" if mode == "create" else "Редактирование шаблона" }}</h1>
+    <form method="post" novalidate>
+      {{ form.hidden_tag() }}
+      <div class="row g-3">
+        <div class="col-md-6">{{ form.name.label(class="form-label") }}{{ form.name(class="form-control") }}</div>
+        <div class="col-md-6">{{ form.category.label(class="form-label") }}{{ form.category(class="form-control") }}</div>
+        <div class="col-md-6">{{ form.module.label(class="form-label") }}{{ form.module(class="form-control") }}</div>
+        <div class="col-md-6">{{ form.lesson.label(class="form-label") }}{{ form.lesson(class="form-control") }}</div>
+        <div class="col-12">{{ form.post_text.label(class="form-label") }}{{ form.post_text(class="form-control", rows=6) }}</div>
+      </div>
+      <button class="btn btn-primary mt-3">Сохранить</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

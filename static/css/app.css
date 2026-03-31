@@ -1,0 +1,116 @@
+:root {
+  --bs-primary: #1f4ed8;
+  --bs-primary-rgb: 31, 78, 216;
+  --brand-accent: #ff8a00;
+  --brand-surface: #f6f9ff;
+  --card-radius: 16px;
+}
+
+body {
+  font-family: "Inter", sans-serif;
+}
+
+.glass-nav {
+  backdrop-filter: blur(8px);
+  background: rgba(246, 249, 255, 0.85);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.card {
+  border-radius: var(--card-radius);
+}
+
+.hover-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.hover-card:hover {
+  transform: translateY(-4px);
+}
+
+.poster-wrap {
+  display: flex;
+  justify-content: center;
+}
+
+.poster-card {
+  width: 100%;
+  max-width: 700px;
+  background: #fff;
+  border-radius: 24px;
+  border: 1px solid #e8eefc;
+  box-shadow: 0 12px 28px -20px rgba(31, 78, 216, 0.45);
+  padding: 22px;
+}
+
+.form-pill {
+  border-radius: 16px;
+  min-height: 46px;
+  border-color: #d7e3ff;
+}
+
+.form-pill:focus {
+  border-color: #1f4ed8;
+  box-shadow: 0 0 0 0.2rem rgba(31, 78, 216, 0.15);
+}
+
+.file-pill::file-selector-button {
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #1f4ed8, #ff8a00);
+  color: #fff;
+  padding: 8px 14px;
+  margin-right: 10px;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #1f4ed8, #ff8a00);
+  border: none;
+}
+
+.btn-primary:hover {
+  filter: brightness(1.05);
+}
+
+.fade-in {
+  animation: fadeIn 0.35s ease both;
+}
+
+.slide-up {
+  animation: slideUp 0.4s ease both;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 600px) {
+  .container {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .poster-card {
+    border-radius: 18px;
+    padding: 14px;
+  }
+
+  .form-grid .col-md-6,
+  .form-grid .col-md-4 {
+    width: 100%;
+  }
+
+  .navbar-brand span {
+    font-size: 0.9rem;
+  }
+
+  .form-pill {
+    font-size: 16px;
+  }
+}

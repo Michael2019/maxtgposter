@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+*.log
+*.sqlite3
+tg-poster-490613-468823500f35.json

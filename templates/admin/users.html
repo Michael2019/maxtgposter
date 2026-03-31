@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Пользователи{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h4 mb-0">Пользователи</h1>
+  <a class="btn btn-primary" href="{{ url_for('admin.users_create') }}">Добавить</a>
+</div>
+<div class="table-responsive card border-0 shadow-sm">
+  <table class="table mb-0">
+    <thead><tr><th>ID</th><th>Username</th><th>Email</th><th>Role</th><th></th></tr></thead>
+    <tbody>
+      {% for user in users %}
+      <tr>
+        <td>{{ user.get('id', '') }}</td>
+        <td>{{ user.get('username', '') }}</td>
+        <td>{{ user.get('email', '') }}</td>
+        <td>{{ user.get('role', '') }}</td>
+        <td class="text-end">
+          <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin.users_edit', row_number=user.get('row_number')) }}">Изменить</a>
+          <form method="post" action="{{ url_for('admin.users_delete', row_number=user.get('row_number')) }}" class="d-inline" onsubmit="return confirm('Удалить пользователя?');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-sm btn-outline-danger">Удалить</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

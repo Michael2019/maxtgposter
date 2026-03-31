@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}{{ page_title }}{% endblock %}
+{% block content %}
+<div class="poster-wrap slide-up">
+  <div class="poster-card">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <h1 class="h4 mb-0">{{ page_title }}</h1>
+      <span class="badge text-bg-warning">Лагерь</span>
+    </div>
+    <form action="/post" method="post" enctype="multipart/form-data" id="postForm" data-form-mode="camp">
+      {{ form.hidden_tag() }}
+      <input type="hidden" name="form_type" value="{{ form_type }}">
+      <div class="row g-3 form-grid">
+        <div class="col-12">
+          <label class="form-label">Текст поста</label>
+          <textarea id="user_text" name="user_text" rows="6" class="form-control form-pill" placeholder="Введите текст поста..." required></textarea>
+        </div>
+        <div class="col-12">
+          <label class="form-label">Канал (Telegram + MAX)</label>
+          <select class="form-select form-pill" id="channel" name="channel" required>
+            <option value="">-- Канал --</option>
+            <option value="test" data-telegram="-1003547986217" data-max="-72270757000562">Тестовый канал</option>
+            <option value="СОЛН" data-telegram="-1002265440531" data-max="-72220373405126">СОЛН</option>
+            <option value="ГРАЖ" data-telegram="-1002230741730" data-max="-72220454997446">ГРАЖ</option>
+            <option value="КРЫЛ" data-telegram="-1002124376897" data-max="-72220532395462">КРЫЛ</option>
+            <option value="БЕР" data-telegram="-1002132174810" data-max="-72220627029446">БЕР</option>
+            <option value="МАР" data-telegram="-1001974376961" data-max="-72220691713478">МАР</option>
+            <option value="КОС" data-telegram="-1001707280364" data-max="-72220777958854">КОС</option>
+            <option value="РОС" data-telegram="-1001939033374" data-max="-72220987280838">РОС</option>
+            <option value="КОМ" data-telegram="-1001514344312" data-max="-72221044035014">КОМ</option>
+            <option value="АПТ" data-telegram="-1001921279740" data-max="-72221090041286">АПТ</option>
+            <option value="ЕСЕН" data-telegram="-1001981369423" data-max="-72221140176326">ЕСЕН</option>
+            <option value="КАЗ" data-telegram="-1001952039872" data-max="-72221214690758">КАЗ</option>
+          </select>
+        </div>
+        <div class="col-12">
+          <label class="form-label">Фото и видео (до 5 шт.)</label>
+          <input id="media_files" name="media_files" type="file" class="form-control form-pill file-pill" multiple accept="image/*,video/*">
+        </div>
+      </div>
+      <input type="hidden" name="chat_id" id="telegram_chat_id">
+      <input type="hidden" name="max_chat_id" id="max_chat_id">
+      <button class="btn btn-primary mt-3 px-4 w-100 w-md-auto" id="submitBtn">
+        <span class="spinner-border spinner-border-sm d-none js-loader"></span>
+        Опубликовать
+      </button>
+    </form>
+  </div>
+</div>
+{% endblock %}

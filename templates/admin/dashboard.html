@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Админ-панель{% endblock %}
+{% block content %}
+<div class="row g-3">
+  <div class="col-md-6">
+    <div class="card shadow-sm border-0 hover-card">
+      <div class="card-body">
+        <h2 class="h6 text-muted">Пользователи</h2>
+        <div class="display-6">{{ users_count }}</div>
+        <a href="{{ url_for('admin.users_list') }}" class="btn btn-outline-primary mt-2">Управлять</a>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card shadow-sm border-0 hover-card">
+      <div class="card-body">
+        <h2 class="h6 text-muted">Шаблоны</h2>
+        <div class="display-6">{{ templates_count }}</div>
+        <a href="{{ url_for('admin.templates_list') }}" class="btn btn-outline-primary mt-2">Управлять</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Вход{% endblock %}
+{% block content %}
+<div class="row justify-content-center slide-up">
+  <div class="col-md-5">
+    <div class="card border-0 shadow-lg">
+      <div class="card-body p-4">
+        <h1 class="h4 mb-3">Вход в систему</h1>
+        <form method="post" novalidate>
+          {{ form.hidden_tag() }}
+          <div class="mb-3">
+            {{ form.username.label(class="form-label") }}
+            {{ form.username(class="form-control", placeholder="Введите логин", required=true) }}
+          </div>
+          <div class="mb-3">
+            {{ form.password.label(class="form-label") }}
+            {{ form.password(class="form-control", placeholder="Введите пароль", required=true) }}
+          </div>
+          <button class="btn btn-primary w-100">
+            <span class="spinner-border spinner-border-sm d-none js-loader"></span>
+            Войти
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

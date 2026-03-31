@@ -1,0 +1,12 @@
+Flask
+Flask-CORS
+Flask-Caching
+Flask-WTF
+requests
+gunicorn
+Flask-JWT-Extended
+python-dotenv
+pandas
+maxapi
+httpx
+gspread
