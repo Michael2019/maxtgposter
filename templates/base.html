@@ -21,8 +21,8 @@
         </a>
         <div class="d-flex align-items-center gap-2">
           {% if session.get('user') %}
-            <a class="btn btn-sm btn-outline-primary" href="{{ url_for('main.test_page') }}">/test</a>
-            <a class="btn btn-sm btn-outline-primary" href="{{ url_for('main.camp_page') }}">/camp</a>
+            <a class="btn btn-sm btn-outline-primary" href="{{ url_for('main.test_page') }}">📘 Занятия</a>
+            <a class="btn btn-sm btn-outline-primary" href="{{ url_for('main.camp_page') }}">🌴 Каникулы</a>
             {% if (session.get('user', {}).get('role', '')|lower) == 'admin' or (session.get('user', {}).get('is_admin', '')|string|lower) in ['true', '1', 'yes'] %}
               <a class="btn btn-sm btn-primary" href="{{ url_for('admin.dashboard') }}">Админка</a>
             {% endif %}

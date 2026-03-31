@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Канал{% endblock %}
+{% block content %}
+<div class="card border-0 shadow-sm">
+  <div class="card-body">
+    <h1 class="h4">{{ "Новый канал" if mode == "create" else "Редактирование канала" }}</h1>
+    {% if row_number %}
+      <form method="post" action="{{ url_for(endpoint, row_number=row_number) }}" novalidate>
+    {% else %}
+      <form method="post" action="{{ url_for(endpoint) }}" novalidate>
+    {% endif %}
+      {{ form.hidden_tag() }}
+      <div class="row g-3">
+        <div class="col-md-6">{{ form.name.label(class="form-label") }}{{ form.name(class="form-control") }}</div>
+        <div class="col-md-6">{{ form.label.label(class="form-label") }}{{ form.label(class="form-control") }}</div>
+        <div class="col-md-4">{{ form.emoji.label(class="form-label") }}{{ form.emoji(class="form-control") }}</div>
+        <div class="col-md-4">{{ form.telegram_chat_id.label(class="form-label") }}{{ form.telegram_chat_id(class="form-control") }}</div>
+        <div class="col-md-4">{{ form.max_chat_id.label(class="form-label") }}{{ form.max_chat_id(class="form-control") }}</div>
+      </div>
+      <button class="btn btn-primary mt-3">Сохранить</button>
+      <a class="btn btn-outline-secondary mt-3" href="{{ url_for(back_url) }}">Назад</a>
+    </form>
+  </div>
+</div>
+{% endblock %}

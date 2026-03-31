@@ -22,6 +22,8 @@ class Config:
     GOOGLE_SPREADSHEET_ID = os.environ.get("GOOGLE_SPREADSHEET_ID")
     GOOGLE_USERS_SHEET = os.environ.get("GOOGLE_USERS_SHEET", "users")
     GOOGLE_TEMPLATES_SHEET = os.environ.get("GOOGLE_TEMPLATES_SHEET", "templates")
+    GOOGLE_CHANNELS_SHEET = os.environ.get("GOOGLE_CHANNELS_SHEET", "channels")
+    GOOGLE_CAMP_CHANNELS_SHEET = os.environ.get("GOOGLE_CAMP_CHANNELS_SHEET", "camp_channels")
 
     # Caching
     CACHE_TYPE = "SimpleCache"

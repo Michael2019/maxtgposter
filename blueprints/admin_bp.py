@@ -1,7 +1,7 @@
 from flask import Blueprint, flash, redirect, render_template, request, url_for
 
 from auth import admin_required, web_login_required
-from forms.admin_forms import TemplateForm, UserForm
+from forms.admin_forms import ChannelForm, TemplateForm, UserForm
 from services.sheets import sheets_service
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
@@ -13,7 +13,13 @@ admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 def dashboard():
     users = sheets_service.get_users()
     templates = sheets_service.get_templates()
-    return render_template("admin/dashboard.html", users_count=len(users), templates_count=len(templates))
+    return render_template(
+        "admin/dashboard.html",
+        users_count=len(users),
+        templates_count=len(templates),
+        channels_count=len(sheets_service.get_main_channels()),
+        camp_channels_count=len(sheets_service.get_camp_channels()),
+    )
 
 
 @admin_bp.route("/users")
@@ -34,13 +40,16 @@ def users_create():
             {
                 "username": form.username.data,
                 "email": form.email.data,
-                "role": form.role.data,
+                "role": form.name.data,
+                "family": form.family.data,
                 "is_admin": str(bool(form.is_admin.data)),
                 "password": form.password.data,
             }
         )
         flash("Пользователь создан", "success")
         return redirect(url_for("admin.users_list"))
+    if form.errors:
+        flash(str(form.errors), "danger")
     return render_template("admin/user_form.html", form=form, mode="create")
 
 
@@ -53,7 +62,9 @@ def users_edit(row_number):
     if not user:
         flash("Пользователь не найден", "danger")
         return redirect(url_for("admin.users_list"))
-    form = UserForm(data=user)
+    user_data = dict(user)
+    user_data["name"] = user.get("role", "")
+    form = UserForm(data=user_data)
     if request.method == "GET":
         form.is_admin.data = str(user.get("is_admin", "")).lower() in {"true", "1", "yes"}
     if form.validate_on_submit():
@@ -62,13 +73,16 @@ def users_edit(row_number):
             {
                 "username": form.username.data,
                 "email": form.email.data,
-                "role": form.role.data,
+                "role": form.name.data,
+                "family": form.family.data,
                 "is_admin": str(bool(form.is_admin.data)),
                 "password": form.password.data,
             },
         )
         flash("Пользователь обновлен", "success")
         return redirect(url_for("admin.users_list"))
+    if form.errors:
+        flash(str(form.errors), "danger")
     return render_template("admin/user_form.html", form=form, mode="edit", row_number=row_number)
 
 
@@ -86,7 +100,13 @@ def users_delete(row_number):
 @admin_required
 def templates_list():
     templates = sheets_service.get_templates()
-    return render_template("admin/templates.html", templates=templates)
+    grouped = {}
+    for tpl in sorted(templates, key=lambda x: (str(x.get("category", "")), str(x.get("module", "")), str(x.get("lesson", "")))):
+        category = tpl.get("category") or "Без категории"
+        module = tpl.get("module") or "Без модуля"
+        lesson = tpl.get("lesson") or "Без занятия"
+        grouped.setdefault(category, {}).setdefault(module, {}).setdefault(lesson, []).append(tpl)
+    return render_template("admin/templates.html", grouped_templates=grouped)
 
 
 @admin_bp.route("/templates/new", methods=["GET", "POST"])
@@ -142,3 +162,107 @@ def templates_delete(row_number):
     sheets_service.delete_template(row_number)
     flash("Шаблон удален", "info")
     return redirect(url_for("admin.templates_list"))
+
+
+def _channel_payload(form):
+    tg_id = form.telegram_chat_id.data
+    mx_id = form.max_chat_id.data
+    return {
+        "name": form.name.data,
+        "label": form.label.data,
+        "emoji": form.emoji.data,
+        "telegram_chat_id": tg_id,
+        "telegram_id": tg_id,
+        "max_chat_id": mx_id,
+        "max_id": mx_id,
+    }
+
+
+@admin_bp.route("/channels")
+@web_login_required
+@admin_required
+def channels_list():
+    return render_template("admin/channels.html", channels=sheets_service.get_main_channels(), list_title="Каналы")
+
+
+@admin_bp.route("/channels/new", methods=["GET", "POST"])
+@web_login_required
+@admin_required
+def channels_create():
+    form = ChannelForm()
+    if form.validate_on_submit():
+        sheets_service.create_main_channel(_channel_payload(form))
+        flash("Канал добавлен", "success")
+        return redirect(url_for("admin.channels_list"))
+    return render_template("admin/channel_form.html", form=form, mode="create", endpoint="admin.channels_create", back_url="admin.channels_list")
+
+
+@admin_bp.route("/channels/<int:row_number>/edit", methods=["GET", "POST"])
+@web_login_required
+@admin_required
+def channels_edit(row_number):
+    items = sheets_service.get_main_channels()
+    item = next((x for x in items if int(x.get("row_number", 0)) == row_number), None)
+    if not item:
+        flash("Канал не найден", "danger")
+        return redirect(url_for("admin.channels_list"))
+    form = ChannelForm(data=item)
+    if form.validate_on_submit():
+        sheets_service.update_main_channel(row_number, _channel_payload(form))
+        flash("Канал обновлен", "success")
+        return redirect(url_for("admin.channels_list"))
+    return render_template("admin/channel_form.html", form=form, mode="edit", endpoint="admin.channels_edit", row_number=row_number, back_url="admin.channels_list")
+
+
+@admin_bp.route("/channels/<int:row_number>/delete", methods=["POST"])
+@web_login_required
+@admin_required
+def channels_delete(row_number):
+    sheets_service.delete_main_channel(row_number)
+    flash("Канал удален", "info")
+    return redirect(url_for("admin.channels_list"))
+
+
+@admin_bp.route("/camp-channels")
+@web_login_required
+@admin_required
+def camp_channels_list():
+    return render_template("admin/channels.html", channels=sheets_service.get_camp_channels(), list_title="Каналы КШ")
+
+
+@admin_bp.route("/camp-channels/new", methods=["GET", "POST"])
+@web_login_required
+@admin_required
+def camp_channels_create():
+    form = ChannelForm()
+    if form.validate_on_submit():
+        sheets_service.create_camp_channel(_channel_payload(form))
+        flash("Канал КШ добавлен", "success")
+        return redirect(url_for("admin.camp_channels_list"))
+    return render_template("admin/channel_form.html", form=form, mode="create", endpoint="admin.camp_channels_create", back_url="admin.camp_channels_list")
+
+
+@admin_bp.route("/camp-channels/<int:row_number>/edit", methods=["GET", "POST"])
+@web_login_required
+@admin_required
+def camp_channels_edit(row_number):
+    items = sheets_service.get_camp_channels()
+    item = next((x for x in items if int(x.get("row_number", 0)) == row_number), None)
+    if not item:
+        flash("Канал КШ не найден", "danger")
+        return redirect(url_for("admin.camp_channels_list"))
+    form = ChannelForm(data=item)
+    if form.validate_on_submit():
+        sheets_service.update_camp_channel(row_number, _channel_payload(form))
+        flash("Канал КШ обновлен", "success")
+        return redirect(url_for("admin.camp_channels_list"))
+    return render_template("admin/channel_form.html", form=form, mode="edit", endpoint="admin.camp_channels_edit", row_number=row_number, back_url="admin.camp_channels_list")
+
+
+@admin_bp.route("/camp-channels/<int:row_number>/delete", methods=["POST"])
+@web_login_required
+@admin_required
+def camp_channels_delete(row_number):
+    sheets_service.delete_camp_channel(row_number)
+    flash("Канал КШ удален", "info")
+    return redirect(url_for("admin.camp_channels_list"))

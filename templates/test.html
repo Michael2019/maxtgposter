@@ -69,32 +69,20 @@
           </select>
         </div>
         <div class="col-12">
-          <label class="form-label">Канал (Telegram + MAX)</label>
+          <label class="form-label">📢 Канал (Telegram + MAX)</label>
           <select class="form-select form-pill" id="channel" name="channel" required>
             <option value="">-- Канал --</option>
-            <option value="test" data-telegram="-1003547986217" data-max="-72270757000562">Тестовый канал</option>
-            <option value="АПТ" data-telegram="-1001431896570" data-max="-72124844461510">АПТ</option>
-            <option value="БАЛК" data-telegram="-1001636810645" data-max="-72216528342470">БАЛК</option>
-            <option value="БЕР" data-telegram="-1001206432088" data-max="-72125847227846">БЕР</option>
-            <option value="ВЕТ" data-telegram="-1001364376632" data-max="-72216262659526">ВЕТ</option>
-            <option value="ГЖАТ" data-telegram="-1001192640037" data-max="-72125294497222">ГЖАТ</option>
-            <option value="ГРАЖ" data-telegram="-1002227664922" data-max="-72125939699142">ГРАЖ</option>
-            <option value="ЕСЕН" data-telegram="-1001315412232" data-max="-72125062303174">ЕСЕН</option>
-            <option value="КАЗ" data-telegram="-1001243940302" data-max="-72125139045830">КАЗ</option>
-            <option value="КОС" data-telegram="-1001344014377" data-max="-72124689075654">КОС</option>
-            <option value="КОМ" data-telegram="-1001106933247" data-max="-72125427469766">КОМ</option>
-            <option value="КРЫЛ" data-telegram="-1001501560640" data-max="-72124587167174">КРЫЛ</option>
-            <option value="КУШ" data-telegram="-1003034352804" data-max="-72125579120070">КУШ</option>
-            <option value="МАР" data-telegram="-1001210093595" data-max="-72125357870534">МАР</option>
-            <option value="ОХТ" data-telegram="-1001961394671" data-max="-72125223325126">ОХТ</option>
-            <option value="РОС" data-telegram="-1001358173677" data-max="-72124130250182">РОС</option>
-            <option value="СОЛН" data-telegram="-1002366401046" data-max="-72216461036998">СОЛН</option>
-            <option value="ЯХТ" data-telegram="-1001304002178" data-max="-72125725527494">ЯХТ</option>
-            <option value="КОМ2" data-telegram="-1002989757095" data-max="-72216207150534">КОМ2</option>
+            {% for channel in channels %}
+              <option
+                value="{{ channel.get('name', '') }}"
+                data-telegram="{{ channel.get('telegram_chat_id', channel.get('telegram_id', '')) }}"
+                data-max="{{ channel.get('max_chat_id', channel.get('max_id', '')) }}"
+              >{{ channel.get('emoji', '✨') }} {{ channel.get('label', channel.get('name', 'Канал')) }}</option>
+            {% endfor %}
           </select>
         </div>
         <div class="col-12">
-          <label class="form-label">Фото и видео (до 5 шт.)</label>
+          <label class="form-label">🖼️ Фото и видео (до 5 шт.)</label>
           <input id="media_files" name="media_files" type="file" class="form-control form-pill file-pill" multiple accept="image/*,video/*">
         </div>
       </div>

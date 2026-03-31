@@ -20,5 +20,23 @@
       </div>
     </div>
   </div>
+  <div class="col-md-6">
+    <div class="card shadow-sm border-0 hover-card">
+      <div class="card-body">
+        <h2 class="h6 text-muted">Каналы</h2>
+        <div class="display-6">{{ channels_count }}</div>
+        <a href="{{ url_for('admin.channels_list') }}" class="btn btn-outline-primary mt-2">Управлять</a>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card shadow-sm border-0 hover-card">
+      <div class="card-body">
+        <h2 class="h6 text-muted">Каналы КШ</h2>
+        <div class="display-6">{{ camp_channels_count }}</div>
+        <a href="{{ url_for('admin.camp_channels_list') }}" class="btn btn-outline-primary mt-2">Управлять</a>
+      </div>
+    </div>
+  </div>
 </div>
 {% endblock %}

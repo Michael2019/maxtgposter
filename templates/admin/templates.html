@@ -5,25 +5,37 @@
   <h1 class="h4 mb-0">Шаблоны</h1>
   <a class="btn btn-primary" href="{{ url_for('admin.templates_create') }}">Добавить</a>
 </div>
-<div class="table-responsive card border-0 shadow-sm">
-  <table class="table mb-0">
-    <thead><tr><th>ID</th><th>Название</th><th>Категория</th><th></th></tr></thead>
-    <tbody>
-      {% for tpl in templates %}
-      <tr>
-        <td>{{ tpl.get('id', '') }}</td>
-        <td>{{ tpl.get('name', '') }}</td>
-        <td>{{ tpl.get('category', '') }}</td>
-        <td class="text-end">
-          <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin.templates_edit', row_number=tpl.get('row_number')) }}">Изменить</a>
-          <form method="post" action="{{ url_for('admin.templates_delete', row_number=tpl.get('row_number')) }}" class="d-inline" onsubmit="return confirm('Удалить шаблон?');">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button class="btn btn-sm btn-outline-danger">Удалить</button>
-          </form>
-        </td>
-      </tr>
+<div class="card border-0 shadow-sm p-3">
+  {% for category, modules in grouped_templates.items() %}
+    <h2 class="h5 mt-2">{{ category }}</h2>
+    {% for module, lessons in modules.items() %}
+      <h3 class="h6 text-muted mt-3">Модуль: {{ module }}</h3>
+      {% for lesson, items in lessons.items() %}
+        <div class="small fw-semibold mb-2">Занятие: {{ lesson }}</div>
+        <div class="table-responsive mb-3">
+          <table class="table table-sm align-middle">
+            <thead><tr><th>#</th><th>Название</th><th></th></tr></thead>
+            <tbody>
+              {% for tpl in items %}
+              <tr>
+                <td>{{ loop.index }}</td>
+                <td>{{ tpl.get('name', '') }}</td>
+                <td class="text-end">
+                  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin.templates_edit', row_number=tpl.get('row_number')) }}">Изменить</a>
+                  <form method="post" action="{{ url_for('admin.templates_delete', row_number=tpl.get('row_number')) }}" class="d-inline" onsubmit="return confirm('Удалить шаблон?');">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-sm btn-outline-danger">Удалить</button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
       {% endfor %}
-    </tbody>
-  </table>
+    {% endfor %}
+  {% else %}
+    <div class="text-muted">Шаблоны пока не добавлены.</div>
+  {% endfor %}
 </div>
 {% endblock %}

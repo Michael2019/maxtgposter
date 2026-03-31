@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}{{ list_title }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h4 mb-0">{{ list_title }}</h1>
+  {% if list_title == "Каналы" %}
+    <a class="btn btn-primary" href="{{ url_for('admin.channels_create') }}">Добавить</a>
+  {% else %}
+    <a class="btn btn-primary" href="{{ url_for('admin.camp_channels_create') }}">Добавить</a>
+  {% endif %}
+</div>
+<div class="table-responsive card border-0 shadow-sm">
+  <table class="table mb-0">
+    <thead><tr><th>#</th><th>Код</th><th>Название</th><th>TG ID</th><th>MAX ID</th><th></th></tr></thead>
+    <tbody>
+      {% for channel in channels %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td>{{ channel.get('name', '') }}</td>
+        <td>{{ channel.get('emoji', '') }} {{ channel.get('label', '') }}</td>
+        <td>{{ channel.get('telegram_chat_id', channel.get('telegram_id', '')) }}</td>
+        <td>{{ channel.get('max_chat_id', channel.get('max_id', '')) }}</td>
+        <td class="text-end">
+          {% if list_title == "Каналы" %}
+            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin.channels_edit', row_number=channel.get('row_number')) }}">Изменить</a>
+            <form method="post" action="{{ url_for('admin.channels_delete', row_number=channel.get('row_number')) }}" class="d-inline" onsubmit="return confirm('Удалить канал?');">
+          {% else %}
+            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin.camp_channels_edit', row_number=channel.get('row_number')) }}">Изменить</a>
+            <form method="post" action="{{ url_for('admin.camp_channels_delete', row_number=channel.get('row_number')) }}" class="d-inline" onsubmit="return confirm('Удалить канал?');">
+          {% endif %}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-sm btn-outline-danger">Удалить</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
