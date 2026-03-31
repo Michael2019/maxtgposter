@@ -100,4 +100,53 @@
   syncChannelIds();
   if (categorySelect) updateModules();
   fillTimeOptions();
+
+  const previewOverlay = document.getElementById("previewOverlay");
+  const previewContent = document.getElementById("previewContent");
+  const submitBtn = document.getElementById("submitBtn");
+  const confirmPublishBtn = document.getElementById("confirmPublishBtn");
+  const closePreviewBtn = document.getElementById("closePreviewBtn");
+  const cancelPreviewBtn = document.getElementById("cancelPreviewBtn");
+  if (previewOverlay && previewContent && submitBtn && confirmPublishBtn) {
+    const openPreview = () => previewOverlay.classList.remove("d-none");
+    const closePreview = () => previewOverlay.classList.add("d-none");
+
+    const loadPreview = async () => {
+      const payload = Object.fromEntries(new FormData(postForm).entries());
+      try {
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Подготовка предпросмотра...";
+        const resp = await fetch("/api/preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await resp.json();
+        previewContent.textContent = data.preview_text || data.error || "Нет данных";
+      } catch (e) {
+        previewContent.textContent = `Ошибка предпросмотра: ${e}`;
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Опубликовать";
+      }
+    };
+
+    submitBtn?.addEventListener("click", async () => {
+      if (!postForm.reportValidity()) return;
+      await loadPreview();
+      openPreview();
+    });
+
+    confirmPublishBtn?.addEventListener("click", () => {
+      confirmPublishBtn.disabled = true;
+      confirmPublishBtn.textContent = "Публикуем...";
+      closePreview();
+      const loader = postForm.querySelector(".js-loader");
+      if (loader) loader.classList.remove("d-none");
+      postForm.submit();
+    });
+
+    closePreviewBtn?.addEventListener("click", closePreview);
+    cancelPreviewBtn?.addEventListener("click", closePreview);
+  }
 })();

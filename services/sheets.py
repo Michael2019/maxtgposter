@@ -6,6 +6,7 @@ from io import StringIO
 import gspread
 import requests
 from flask import current_app
+from gspread.exceptions import WorksheetNotFound
 
 from extensions import cache
 
@@ -94,7 +95,11 @@ class GoogleSheetsService:
         spreadsheet = self._get_spreadsheet()
         if not spreadsheet:
             return None
-        return spreadsheet.worksheet(sheet_name)
+        try:
+            return spreadsheet.worksheet(sheet_name)
+        except WorksheetNotFound:
+            current_app.logger.warning("Sheets: worksheet not found: %s (fallback will be used)", sheet_name)
+            return None
 
     def _read_csv_users_fallback(self):
         users_csv_url = current_app.config.get("USERS_CSV_URL")

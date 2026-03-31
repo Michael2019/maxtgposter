@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}История отправок{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h4 mb-0">История отправок</h1>
+</div>
+<div class="table-responsive card border-0 shadow-sm">
+  <table class="table mb-0">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Пользователь</th>
+        <th>Статус</th>
+        <th>Создано</th>
+        <th>Завершено</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td><code>{{ item.get('id', '')[:8] }}</code></td>
+        <td>{{ item.get('user', {}).get('username', '—') }}</td>
+        <td>{{ item.get('status', '') }}</td>
+        <td>{{ item.get('created_at', '') }}</td>
+        <td>{{ item.get('finished_at', '') }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="text-muted">Пока нет отправок</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

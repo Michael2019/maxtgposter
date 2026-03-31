@@ -17,6 +17,7 @@ from blueprints.admin_bp import admin_bp
 from blueprints.auth_bp import auth_bp
 from blueprints.main_bp import main_bp
 from extensions import cache, csrf, jwt
+from services.publish_queue import create_job, get_job, run_job_async
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 MAX_BOT_TOKEN = os.environ.get("MAX_BOT_TOKEN")
@@ -63,6 +64,34 @@ def split_text_chunks(text, chunk_size):
     if not text:
         return []
     return [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
+
+
+def build_post_text_payload(form_data, role):
+    user_text = form_data.get('user_text', '').strip()
+    category = form_data.get('category', '')
+    module = form_data.get('module', '')
+    lesson = form_data.get('lesson', '')
+    weekday = form_data.get('weekday', '')
+    time_val = form_data.get('time', '')
+    form_type = form_data.get('form_type', 'lessons')
+
+    if user_text:
+        base_text = user_text
+    else:
+        base_text = get_post_template(category, module, lesson)
+
+    tags = []
+    if weekday and time_val:
+        tags.append(f"#{weekday.lower()}_{time_val.replace(':', '_')}")
+    if category:
+        tags.append(f"#{re.sub(r'[^\w\s-]', '', category).replace(' ', '_')}")
+
+    full_text = f"{' '.join(tags)}\n{base_text}" if tags else base_text
+    signature = ""
+    role = str(role or "").strip()
+    if role and role.lower() not in ("admin", "user", "moderator"):
+        signature = f"\n\nВаш наставник {role}" if form_type == "camp" else f"\n\nВаш преподаватель {role}"
+    return trim_text_to_limit(full_text, signature, 4096)
 
 
 # ============= ОТПРАВКА В TELEGRAM =============
@@ -421,58 +450,33 @@ def create_app():
                 flash("Не указан ID канала Telegram", "danger")
                 return _form_redirect_with_flash()
 
-            if user_text:
-                base_text = user_text
-                app.logger.info("POST /post: using user-provided text")
-            else:
-                base_text = get_post_template(category, module, lesson)
-                app.logger.info("POST /post: template text loaded len=%s", len(base_text))
-
-            tags = []
-            if weekday and time_val:
-                weekday_lower = weekday.lower()
-                time_clean = time_val.replace(':', '_')
-                tags.append(f"#{weekday_lower}_{time_clean}")
-            if category:
-                category_tag = re.sub(r'[^\w\s-]', '', category)
-                category_tag = category_tag.replace(' ', '_')
-                tags.append(f"#{category_tag}")
-
-            full_text = f"{' '.join(tags)}\n{base_text}" if tags else base_text
-
-            signature = ""
-            if role and role.lower() not in ('admin', 'user', 'moderator'):
-                signature = f"\n\nВаш наставник {role}" if form_type == 'camp' else f"\n\nВаш преподаватель {role}"
-            app.logger.info("POST /post: signature_added=%s", bool(signature))
-
-            max_len = 4096
-            app.logger.info("POST /post: text limit=%s", max_len)
-
-            final_text = trim_text_to_limit(full_text, signature, max_len)
+            final_text = build_post_text_payload(request.form, role)
             app.logger.info("POST /post: final_text_len=%s", len(final_text))
 
-            app.logger.info("POST /post: sending to telegram...")
-            tg_result = send_to_telegram(telegram_chat_id, final_text, files_data)
-            app.logger.info("POST /post: telegram result ok=%s skipped=%s", tg_result.get("ok"), tg_result.get("skipped"))
+            payload = {
+                "telegram_chat_id": telegram_chat_id,
+                "max_chat_id": max_chat_id,
+                "text": final_text,
+                "files_data": files_data,
+            }
+            job_id = create_job(payload, {"username": current_username, "role": role})
 
-            max_result = {"ok": False, "skipped": True}
-            if max_chat_id and MAX_BOT_TOKEN:
-                app.logger.info("POST /post: sending to MAX...")
-                max_result = send_to_max(max_chat_id, final_text, files_data)
-                app.logger.info("POST /post: MAX result ok=%s skipped=%s", max_result.get("ok"), max_result.get("skipped"))
-            else:
-                app.logger.info("POST /post: MAX skipped max_chat_id_present=%s token_present=%s", bool(max_chat_id), bool(MAX_BOT_TOKEN))
+            def _publish():
+                tg_result = send_to_telegram(payload["telegram_chat_id"], payload["text"], payload["files_data"])
+                max_result = {"ok": False, "skipped": True}
+                if payload["max_chat_id"] and MAX_BOT_TOKEN:
+                    max_result = send_to_max(payload["max_chat_id"], payload["text"], payload["files_data"])
+                all_ok = (tg_result.get("ok", False) or tg_result.get("skipped", False)) and (
+                    max_result.get("ok", False) or max_result.get("skipped", False)
+                )
+                return {"ok": all_ok, "telegram": tg_result, "max": max_result}
 
-            all_ok = (tg_result.get('ok', False) or tg_result.get('skipped', False)) and (max_result.get('ok', False) or max_result.get('skipped', False))
-            app.logger.info("POST /post: completed all_ok=%s", all_ok)
+            run_job_async(job_id, _publish)
 
             if wants_json:
-                return jsonify({"ok": all_ok, "telegram": tg_result, "max": max_result}), 200
+                return jsonify({"ok": True, "queued": True, "job_id": job_id}), 202
 
-            if all_ok:
-                flash("Пост отправлен успешно", "success")
-            else:
-                flash(f"Ошибка публикации. Telegram: {tg_result.get('error', 'ok')}; MAX: {max_result.get('error', 'ok')}", "danger")
+            flash(f"Публикация поставлена в очередь. ID задачи: {job_id[:8]}", "info")
             return _form_redirect_with_flash()
         except Exception as e:
             app.logger.exception("POST /post: unhandled error: %s", e)
@@ -480,6 +484,23 @@ def create_app():
                 return jsonify({"error": str(e), "ok": False}), 500
             flash(f"Ошибка публикации: {e}", "danger")
             return _form_redirect_with_flash()
+
+    @app.route("/api/preview", methods=["POST"])
+    @csrf.exempt
+    def preview_post():
+        current_username, role = _resolve_user()
+        if not current_username:
+            return jsonify({"ok": False, "error": "Требуется авторизация"}), 401
+        text = build_post_text_payload(request.get_json() or {}, role)
+        return jsonify({"ok": True, "preview_text": text, "length": len(text)}), 200
+
+    @app.route("/api/jobs/<job_id>", methods=["GET"])
+    @csrf.exempt
+    def get_job_status(job_id):
+        job = get_job(job_id)
+        if not job:
+            return jsonify({"ok": False, "error": "Job not found"}), 404
+        return jsonify({"ok": True, "job": job}), 200
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(main_bp)

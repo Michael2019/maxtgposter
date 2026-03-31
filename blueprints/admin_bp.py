@@ -2,6 +2,7 @@ from flask import Blueprint, flash, redirect, render_template, request, url_for
 
 from auth import admin_required, web_login_required
 from forms.admin_forms import ChannelForm, TemplateForm, UserForm
+from services.publish_queue import list_history
 from services.sheets import sheets_service
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
@@ -19,6 +20,7 @@ def dashboard():
         templates_count=len(templates),
         channels_count=len(sheets_service.get_main_channels()),
         camp_channels_count=len(sheets_service.get_camp_channels()),
+        history_count=len(list_history(200)),
     )
 
 
@@ -269,3 +271,10 @@ def camp_channels_delete(row_number):
     sheets_service.delete_camp_channel(row_number)
     flash("Канал КШ удален", "info")
     return redirect(url_for("admin.camp_channels_list"))
+
+
+@admin_bp.route("/history")
+@web_login_required
+@admin_required
+def publish_history():
+    return render_template("admin/history.html", items=list_history(200))

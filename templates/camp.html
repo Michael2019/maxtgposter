@@ -35,11 +35,25 @@
       </div>
       <input type="hidden" name="chat_id" id="telegram_chat_id">
       <input type="hidden" name="max_chat_id" id="max_chat_id">
-      <button class="btn btn-primary mt-3 px-4 w-100 w-md-auto" id="submitBtn">
+      <button type="button" class="btn btn-primary mt-3 px-4 w-100 w-md-auto" id="submitBtn">
         <span class="spinner-border spinner-border-sm d-none js-loader"></span>
         Опубликовать
       </button>
     </form>
+  </div>
+</div>
+
+<div id="previewOverlay" class="preview-overlay d-none">
+  <div class="preview-sheet">
+    <div class="d-flex align-items-center justify-content-between mb-2">
+      <h5 class="mb-0">Предпросмотр поста</h5>
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="closePreviewBtn">✕</button>
+    </div>
+    <pre id="previewContent" class="mb-3 preview-content"></pre>
+    <div class="d-flex gap-2 justify-content-end">
+      <button type="button" class="btn btn-outline-secondary" id="cancelPreviewBtn">Отмена</button>
+      <button type="button" class="btn btn-primary" id="confirmPublishBtn">✅ Подтверждаю публикацию</button>
+    </div>
   </div>
 </div>
 {% endblock %}
