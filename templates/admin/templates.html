@@ -6,36 +6,129 @@
   <a class="btn btn-primary" href="{{ url_for('admin.templates_create') }}">Добавить</a>
 </div>
 <div class="card border-0 shadow-sm p-3">
-  {% for category, modules in grouped_templates.items() %}
-    <h2 class="h5 mt-2">{{ category }}</h2>
-    {% for module, lessons in modules.items() %}
-      <h3 class="h6 text-muted mt-3">Модуль: {{ module }}</h3>
-      {% for lesson, items in lessons.items() %}
-        <div class="small fw-semibold mb-2">Занятие: {{ lesson }}</div>
-        <div class="table-responsive mb-3">
-          <table class="table table-sm align-middle">
-            <thead><tr><th>#</th><th>Название</th><th></th></tr></thead>
-            <tbody>
-              {% for tpl in items %}
-              <tr>
-                <td>{{ loop.index }}</td>
-                <td>{{ tpl.get('name', '') }}</td>
-                <td class="text-end">
-                  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin.templates_edit', row_number=tpl.get('row_number')) }}">Изменить</a>
-                  <form method="post" action="{{ url_for('admin.templates_delete', row_number=tpl.get('row_number')) }}" class="d-inline" onsubmit="return confirm('Удалить шаблон?');">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button class="btn btn-sm btn-outline-danger">Удалить</button>
-                  </form>
-                </td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      {% endfor %}
-    {% endfor %}
-  {% else %}
-    <div class="text-muted">Шаблоны пока не добавлены.</div>
-  {% endfor %}
+  <div class="row g-3 mb-3">
+    <div class="col-md-4">
+      <label class="form-label">Категория</label>
+      <select id="tplCategory" class="form-select form-pill"></select>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Модуль</label>
+      <select id="tplModule" class="form-select form-pill"></select>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Занятие</label>
+      <select id="tplLesson" class="form-select form-pill"></select>
+    </div>
+  </div>
+
+  <div class="table-responsive">
+    <table class="table table-sm align-middle">
+      <thead><tr><th>#</th><th>Название</th><th class="text-end">Действия</th></tr></thead>
+      <tbody id="tplRows"></tbody>
+    </table>
+  </div>
+  <div id="tplEmpty" class="text-muted d-none">Шаблоны не найдены для выбранных значений.</div>
 </div>
+
+<script>
+  (() => {
+    const templates = [
+      {% for tpl in templates %}
+      {
+        row_number: {{ tpl.get('row_number', 0) }},
+        name: {{ (tpl.get('name', '')|tojson) }},
+        category: {{ ((tpl.get('category') or 'Без категории')|tojson) }},
+        module: {{ ((tpl.get('module') or 'Без модуля')|tojson) }},
+        lesson: {{ ((tpl.get('lesson') or 'Без занятия')|tojson) }}
+      },
+      {% endfor %}
+    ].map((t) => ({
+      ...t,
+      category: String(t.category ?? "Без категории"),
+      module: String(t.module ?? "Без модуля"),
+      lesson: String(t.lesson ?? "Без занятия"),
+      name: String(t.name ?? ""),
+    }));
+
+    const categoryEl = document.getElementById("tplCategory");
+    const moduleEl = document.getElementById("tplModule");
+    const lessonEl = document.getElementById("tplLesson");
+    const rowsEl = document.getElementById("tplRows");
+    const emptyEl = document.getElementById("tplEmpty");
+
+    function fillSelect(el, values) {
+      el.innerHTML = "";
+      values.forEach((v) => {
+        const opt = document.createElement("option");
+        opt.value = v;
+        opt.textContent = v;
+        el.appendChild(opt);
+      });
+    }
+
+    function uniqueSorted(arr) {
+      return [...new Set(arr.map((v) => String(v)))].sort((a, b) =>
+        a.localeCompare(b, "ru", { numeric: true, sensitivity: "base" })
+      );
+    }
+
+    function renderRows() {
+      const selectedCategory = categoryEl.value;
+      const selectedModule = moduleEl.value;
+      const selectedLesson = lessonEl.value;
+      const filtered = templates.filter(
+        (t) => t.category === selectedCategory && t.module === selectedModule && t.lesson === selectedLesson
+      );
+      rowsEl.innerHTML = "";
+      filtered.forEach((tpl, idx) => {
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td>${idx + 1}</td>
+          <td>${tpl.name}</td>
+          <td class="text-end">
+            <a class="btn btn-sm btn-outline-secondary" href="/admin/templates/${tpl.row_number}/edit">Изменить</a>
+            <form method="post" action="/admin/templates/${tpl.row_number}/delete" class="d-inline" onsubmit="return confirm('Удалить шаблон?');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="btn btn-sm btn-outline-danger">Удалить</button>
+            </form>
+          </td>
+        `;
+        rowsEl.appendChild(row);
+      });
+      emptyEl.classList.toggle("d-none", filtered.length > 0);
+    }
+
+    function onCategoryChange() {
+      const modules = uniqueSorted(templates.filter((t) => t.category === categoryEl.value).map((t) => t.module));
+      fillSelect(moduleEl, modules);
+      onModuleChange();
+    }
+
+    function onModuleChange() {
+      const lessons = uniqueSorted(
+        templates
+          .filter((t) => t.category === categoryEl.value && t.module === moduleEl.value)
+          .map((t) => t.lesson)
+      );
+      fillSelect(lessonEl, lessons);
+      renderRows();
+    }
+
+    categoryEl.addEventListener("change", onCategoryChange);
+    moduleEl.addEventListener("change", onModuleChange);
+    lessonEl.addEventListener("change", renderRows);
+
+    const categories = uniqueSorted(templates.map((t) => t.category));
+    if (categories.length === 0) {
+      fillSelect(categoryEl, ["Нет категорий"]);
+      fillSelect(moduleEl, ["Нет модулей"]);
+      fillSelect(lessonEl, ["Нет занятий"]);
+      rowsEl.innerHTML = "";
+      emptyEl.classList.remove("d-none");
+      return;
+    }
+    fillSelect(categoryEl, categories);
+    onCategoryChange();
+  })();
+</script>
 {% endblock %}

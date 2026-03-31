@@ -100,13 +100,16 @@ def users_delete(row_number):
 @admin_required
 def templates_list():
     templates = sheets_service.get_templates()
-    grouped = {}
-    for tpl in sorted(templates, key=lambda x: (str(x.get("category", "")), str(x.get("module", "")), str(x.get("lesson", "")))):
-        category = tpl.get("category") or "Без категории"
-        module = tpl.get("module") or "Без модуля"
-        lesson = tpl.get("lesson") or "Без занятия"
-        grouped.setdefault(category, {}).setdefault(module, {}).setdefault(lesson, []).append(tpl)
-    return render_template("admin/templates.html", grouped_templates=grouped)
+    templates = sorted(
+        templates,
+        key=lambda x: (
+            str(x.get("category") or "Без категории"),
+            str(x.get("module") or "Без модуля"),
+            str(x.get("lesson") or "Без занятия"),
+            str(x.get("name") or ""),
+        ),
+    )
+    return render_template("admin/templates.html", templates=templates)
 
 
 @admin_bp.route("/templates/new", methods=["GET", "POST"])

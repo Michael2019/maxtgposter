@@ -141,3 +141,10 @@ body {
   color: #dbe6ff;
   border-color: #354460;
 }
+
+[data-bs-theme="dark"] .file-pill::file-selector-button,
+[data-bs-theme="dark"] input[type="file"]::file-selector-button {
+  background: #1b2740;
+  color: #dbe6ff;
+  border: 1px solid #3a4b6b;
+}

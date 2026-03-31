@@ -57,6 +57,14 @@ def trim_text_to_limit(main_text, signature, max_length):
         return signature
     return trimmed_main + signature
 
+
+def split_text_chunks(text, chunk_size):
+    text = text or ""
+    if not text:
+        return []
+    return [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
+
+
 # ============= ОТПРАВКА В TELEGRAM =============
 def send_to_telegram(chat_id, text, files_data):
     logger = logging.getLogger("app")
@@ -94,6 +102,12 @@ def send_to_telegram(chat_id, text, files_data):
     try:
         print(f"📱 send_to_telegram: chat_id={chat_id}, files={len(files_data)}")
         if files_data:
+            full_text = text or ""
+            caption_limit = 1024
+            caption_text = full_text[:caption_limit] if full_text else ""
+            remainder_text = full_text[caption_limit:] if len(full_text) > caption_limit else ""
+            remainder_chunks = split_text_chunks(remainder_text, 4096)
+
             media = []
             attachments = {}
             for idx, (filename, content, mime_type) in enumerate(files_data):
@@ -109,8 +123,8 @@ def send_to_telegram(chat_id, text, files_data):
                     'type': media_type,
                     'media': f'attach://{attach_name}'
                 }
-                if idx == 0 and text:
-                    media_item['caption'] = text
+                if idx == 0 and caption_text:
+                    media_item['caption'] = caption_text
                     media_item['parse_mode'] = 'HTML'
                 media.append(media_item)
                 attachments[attach_name] = (filename, BytesIO(content), mime_type)
@@ -123,7 +137,7 @@ def send_to_telegram(chat_id, text, files_data):
                 only_name = next(iter(attachments))
                 fname, stream, mime = attachments[only_name]
                 endpoint = "sendPhoto" if only_item["type"] == "photo" else "sendVideo"
-                payload = {"chat_id": chat_id, "caption": text or "", "parse_mode": "HTML"}
+                payload = {"chat_id": chat_id, "caption": caption_text or "", "parse_mode": "HTML"}
                 files_for_tg = {"photo" if endpoint == "sendPhoto" else "video": (fname, stream, mime)}
                 print(f"📤 Telegram: отправка single media ({endpoint})...")
                 response = tg_post(endpoint, data=payload, files=files_for_tg, timeout=(15, 45), retries=2)
@@ -133,7 +147,24 @@ def send_to_telegram(chat_id, text, files_data):
                 print("📤 Telegram: отправка media group...")
                 response = tg_post("sendMediaGroup", data=payload, files=files_for_tg, timeout=(15, 45), retries=2)
             print(f" Telegram response: {response.status_code} - {response.text[:200]}")
-            return response.json() if response.status_code == 200 else {"ok": False, "error": response.text}
+            if response.status_code != 200:
+                return {"ok": False, "error": response.text}
+
+            # If the text is longer than media caption limit, send the rest in follow-up messages.
+            if remainder_chunks:
+                print(f"📤 Telegram: отправка продолжения текста chunks={len(remainder_chunks)}")
+                for chunk in remainder_chunks:
+                    msg_resp = tg_post(
+                        "sendMessage",
+                        data={"chat_id": chat_id, "text": chunk, "parse_mode": "HTML"},
+                        timeout=(15, 35),
+                        retries=2,
+                    )
+                    if msg_resp.status_code != 200:
+                        print(f" Telegram continuation failed: {msg_resp.status_code} - {msg_resp.text[:200]}")
+                        return {"ok": False, "error": f"Continuation message failed: {msg_resp.text}"}
+
+            return response.json()
         elif text:
             payload = {'chat_id': chat_id, 'text': text, 'parse_mode': 'HTML'}
             print("📤 Telegram: отправка text message...")
@@ -414,7 +445,7 @@ def create_app():
                 signature = f"\n\nВаш наставник {role}" if form_type == 'camp' else f"\n\nВаш преподаватель {role}"
             app.logger.info("POST /post: signature_added=%s", bool(signature))
 
-            max_len = 1024 if files_data else 4096
+            max_len = 4096
             app.logger.info("POST /post: text limit=%s", max_len)
 
             final_text = trim_text_to_limit(full_text, signature, max_len)
