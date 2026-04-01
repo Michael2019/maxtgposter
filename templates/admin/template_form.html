@@ -3,18 +3,120 @@
 {% block content %}
 <div class="card border-0 shadow-sm">
   <div class="card-body">
-    <h1 class="h4">{{ "Новый шаблон" if mode == "create" else "Редактирование шаблона" }}</h1>
-    <form method="post" novalidate>
+    <div class="d-flex align-items-center gap-2 mb-3">
+      <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('admin.dashboard') }}">← К админке</a>
+      <h1 class="h4 mb-0">{{ "Новый шаблон" if mode == "create" else "Редактирование шаблона" }}</h1>
+    </div>
+    <form
+      method="post"
+      novalidate
+      id="templateAdminForm"
+      data-initial-category="{{ initial_category|default('', true)|e }}"
+      data-initial-module="{{ initial_module|default('', true)|e }}"
+      data-initial-lesson="{{ initial_lesson|default('', true)|e }}"
+    >
       {{ form.hidden_tag() }}
       <div class="row g-3">
         <div class="col-md-6">{{ form.name.label(class="form-label") }}{{ form.name(class="form-control") }}</div>
-        <div class="col-md-6">{{ form.category.label(class="form-label") }}{{ form.category(class="form-control") }}</div>
-        <div class="col-md-6">{{ form.module.label(class="form-label") }}{{ form.module(class="form-control") }}</div>
-        <div class="col-md-6">{{ form.lesson.label(class="form-label") }}{{ form.lesson(class="form-control") }}</div>
+        <div class="col-12">
+          <label class="form-label" for="category">Категория</label>
+          <select class="form-select" id="category" name="category" required>
+            <option value="">-- Категория --</option>
+            <option value="Робототехника ПМ4">Робототехника ПМ4</option>
+            <option value="Робототехника ПМ5">Робототехника ПМ5</option>
+            <option value="Робототехника 0ст">Робототехника 0ст</option>
+            <option value="Робототехника 1ст">Робототехника 1ст</option>
+            <option value="Робототехника 2ст">Робототехника 2ст</option>
+            <option value="Робототехника 3ст">Робототехника 3ст</option>
+            <option value="Робототехника 4ст">Робототехника 4ст</option>
+            <option value="Робототехника 5ст">Робототехника 5ст</option>
+            <option value="Робототехника 6ст">Робототехника 6ст</option>
+            <option value="Робототехника 7ст">Робототехника 7ст</option>
+            <option value="Робототехника 8ст">Робототехника 8ст</option>
+            <option value="Робик 1">Робик 1</option>
+            <option value="Робик 2">Робик 2</option>
+            <option value="Scratch">Scratch</option>
+            <option value="Python">Python</option>
+            <option value="ОЛиП NEW">ОЛиП NEW</option>
+            <option value="ОЛиП">ОЛиП</option>
+            <option value="Хакер">Хакер</option>
+            <option value="Юнити">Юнити</option>
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="module">Модуль</label>
+          <select class="form-select" id="module" name="module" required>
+            <option value="">-- Модуль --</option>
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="lesson">Занятие</label>
+          <select class="form-select" id="lesson" name="lesson" required>
+            <option value="">-- Занятие --</option>
+          </select>
+        </div>
         <div class="col-12">{{ form.post_text.label(class="form-label") }}{{ form.post_text(class="form-control", rows=6) }}</div>
       </div>
       <button class="btn btn-primary mt-3">Сохранить</button>
     </form>
   </div>
 </div>
+<script>
+(() => {
+  const form = document.getElementById("templateAdminForm");
+  if (!form) return;
+  const categorySelect = document.getElementById("category");
+  const moduleSelect = document.getElementById("module");
+  const lessonSelect = document.getElementById("lesson");
+  const months = [
+    "январь", "февраль", "март", "апрель", "май", "июнь",
+    "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь",
+  ];
+
+  function updateModules() {
+    if (!categorySelect || !moduleSelect) return;
+    const category = categorySelect.value;
+    moduleSelect.innerHTML = '<option value="">-- Модуль --</option>';
+    const options = (category === "Робик 1" || category === "Робик 2")
+      ? months.map((m) => ({ value: m, text: m.charAt(0).toUpperCase() + m.slice(1) }))
+      : [{ value: "1", text: "Модуль 1" }, { value: "2", text: "Модуль 2" }];
+
+    options.forEach((opt) => {
+      const option = document.createElement("option");
+      option.value = opt.value;
+      option.textContent = opt.text;
+      moduleSelect.appendChild(option);
+    });
+    updateLessons();
+  }
+
+  function updateLessons() {
+    if (!moduleSelect || !lessonSelect) return;
+    const moduleVal = moduleSelect.value;
+    lessonSelect.innerHTML = '<option value="">-- Занятие --</option>';
+    let maxLesson = 0;
+    if (moduleVal === "1") maxLesson = 17;
+    else if (moduleVal === "2") maxLesson = 20;
+    else if (months.includes(moduleVal)) maxLesson = 5;
+    for (let i = 1; i <= maxLesson; i += 1) {
+      const option = document.createElement("option");
+      option.value = String(i);
+      option.textContent = "Занятие " + i;
+      lessonSelect.appendChild(option);
+    }
+  }
+
+  categorySelect.addEventListener("change", updateModules);
+  moduleSelect.addEventListener("change", updateLessons);
+
+  const ic = form.dataset.initialCategory || "";
+  const im = form.dataset.initialModule || "";
+  const il = form.dataset.initialLesson || "";
+  if (ic) categorySelect.value = ic;
+  updateModules();
+  if (im) moduleSelect.value = im;
+  updateLessons();
+  if (il) lessonSelect.value = il;
+})();
+</script>
 {% endblock %}

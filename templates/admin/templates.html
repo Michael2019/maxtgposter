@@ -1,8 +1,11 @@
 {% extends "base.html" %}
 {% block title %}Шаблоны{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h1 class="h4 mb-0">Шаблоны</h1>
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+  <div class="d-flex align-items-center gap-2 flex-wrap">
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('admin.dashboard') }}">← К админке</a>
+    <h1 class="h4 mb-0">Шаблоны</h1>
+  </div>
   <a class="btn btn-primary" href="{{ url_for('admin.templates_create') }}">Добавить</a>
 </div>
 <div class="card border-0 shadow-sm p-3">

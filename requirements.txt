@@ -1,3 +1,5 @@
+Pillow
+pillow-heif
 Flask
 Flask-CORS
 Flask-Caching

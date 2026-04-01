@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO, StringIO
 
 import requests
@@ -17,6 +18,8 @@ from blueprints.admin_bp import admin_bp
 from blueprints.auth_bp import auth_bp
 from blueprints.main_bp import main_bp
 from extensions import cache, csrf, jwt
+from services.media_files import prepare_files_for_publish, sniff_telegram_media_kind
+from services.publish_max import send_to_max as max_send_message
 from services.publish_queue import create_job, get_job, run_job_async
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -26,23 +29,37 @@ TELEGRAM_PROXY_URL = os.environ.get("TELEGRAM_PROXY_URL")
 TELEGRAM_API_URL = f"{TELEGRAM_API_BASE_URL}/bot{BOT_TOKEN}" if BOT_TOKEN else ""
 SHEETS_CSV_URL = os.environ.get("SHEETS_CSV_URL")
 
+# Кэш CSV шаблонов из Google Sheets — снижает задержку перед постановкой в очередь
+_TEMPLATE_CSV_CACHE = {"rows": None, "fetched_at": 0.0}
+_TEMPLATE_CSV_TTL_SEC = 300.0
+
+
 def get_post_template(category, module, lesson):
+    fallback = f"{category}, модуль {module}, занятие {lesson}"
     try:
         if not SHEETS_CSV_URL:
-            return f"{category}, модуль {module}, занятие {lesson}"
-        response = requests.get(SHEETS_CSV_URL, timeout=10)
-        response.raise_for_status()
-        csv_data = response.content.decode('utf-8')
-        reader = csv.DictReader(StringIO(csv_data))
-        for row in reader:
-            if (row.get('category', '').strip() == str(category) and
-                row.get('module', '').strip() == str(module) and
-                row.get('lesson', '').strip() == str(lesson)):
-                return row.get('post_text', '').strip()
-        return f"{category}, модуль {module}, занятие {lesson}"
+            return fallback
+        now = time.monotonic()
+        rows = _TEMPLATE_CSV_CACHE["rows"]
+        if rows is None or (now - _TEMPLATE_CSV_CACHE["fetched_at"]) > _TEMPLATE_CSV_TTL_SEC:
+            response = requests.get(SHEETS_CSV_URL, timeout=10)
+            response.raise_for_status()
+            csv_data = response.content.decode("utf-8")
+            reader = csv.DictReader(StringIO(csv_data))
+            rows = list(reader)
+            _TEMPLATE_CSV_CACHE["rows"] = rows
+            _TEMPLATE_CSV_CACHE["fetched_at"] = now
+        for row in rows:
+            if (
+                row.get("category", "").strip() == str(category)
+                and row.get("module", "").strip() == str(module)
+                and row.get("lesson", "").strip() == str(lesson)
+            ):
+                return (row.get("post_text") or "").strip() or fallback
+        return fallback
     except Exception as e:
         print(f"Ошибка шаблона: {e}")
-        return f"{category}, модуль {module}, занятие {lesson}"
+        return fallback
 
 def trim_text_to_limit(main_text, signature, max_length):
     full = main_text + signature
@@ -139,24 +156,56 @@ def send_to_telegram(chat_id, text, files_data):
 
             media = []
             attachments = {}
-            for idx, (filename, content, mime_type) in enumerate(files_data):
-                if 'image' in mime_type:
-                    media_type = 'photo'
-                elif 'video' in mime_type:
-                    media_type = 'video'
+            media_idx = 0
+            for filename, content, mime_type in files_data:
+                kind = sniff_telegram_media_kind(filename, mime_type)
+                if kind == "photo":
+                    media_type = "photo"
+                elif kind == "video":
+                    media_type = "video"
                 else:
-                    print(f" ⚠️ файл {filename} пропущен (неподдерживаемый тип)")
+                    if len(files_data) == 1:
+                        print(f"📤 Telegram: отправка как документ ({filename})...")
+                        payload_doc = {
+                            "chat_id": chat_id,
+                            "caption": caption_text or "",
+                            "parse_mode": "HTML",
+                        }
+                        files_doc = {
+                            "document": (
+                                filename or "file.bin",
+                                BytesIO(content),
+                                mime_type or "application/octet-stream",
+                            )
+                        }
+                        response = tg_post("sendDocument", data=payload_doc, files=files_doc, timeout=(15, 120), retries=2)
+                        print(f" Telegram response: {response.status_code} - {response.text[:200]}")
+                        if response.status_code != 200:
+                            return {"ok": False, "error": response.text}
+                        if remainder_chunks:
+                            for chunk in remainder_chunks:
+                                msg_resp = tg_post(
+                                    "sendMessage",
+                                    data={"chat_id": chat_id, "text": chunk, "parse_mode": "HTML"},
+                                    timeout=(15, 35),
+                                    retries=2,
+                                )
+                                if msg_resp.status_code != 200:
+                                    return {"ok": False, "error": f"Continuation message failed: {msg_resp.text}"}
+                        return response.json()
+                    print(f" ⚠️ файл {filename} пропущен (неподдерживаемый тип {mime_type})")
                     continue
-                attach_name = f"file{idx}"
+                attach_name = f"file{media_idx}"
                 media_item = {
-                    'type': media_type,
-                    'media': f'attach://{attach_name}'
+                    "type": media_type,
+                    "media": f"attach://{attach_name}",
                 }
-                if idx == 0 and caption_text:
-                    media_item['caption'] = caption_text
-                    media_item['parse_mode'] = 'HTML'
+                if media_idx == 0 and caption_text:
+                    media_item["caption"] = caption_text
+                    media_item["parse_mode"] = "HTML"
                 media.append(media_item)
                 attachments[attach_name] = (filename, BytesIO(content), mime_type)
+                media_idx += 1
 
             if not media:
                 return {"ok": False, "error": "Нет поддерживаемых файлов"}
@@ -212,121 +261,6 @@ def send_to_telegram(chat_id, text, files_data):
         print(f"🔥 Ошибка в send_to_telegram: {e}")
         import traceback
         traceback.print_exc()
-        return {"ok": False, "error": str(e)}
-
-# ============= ОТПРАВКА В MAX (С ПОДДЕРЖКОЙ ФАЙЛОВ) =============
-def send_to_max(chat_id, text, files_data=None):
-    print(f"📱 send_to_max: chat_id={chat_id}, files={len(files_data) if files_data else 0}")
-    if not MAX_BOT_TOKEN:
-        print("❌ MAX_BOT_TOKEN не задан")
-        return {"ok": False, "error": "MAX_BOT_TOKEN not configured", "skipped": True}
-
-    token_preview = MAX_BOT_TOKEN[:5] + "..." if len(MAX_BOT_TOKEN) > 5 else MAX_BOT_TOKEN
-    print(f"🔑 Токен MAX (первые 5 символов): {token_preview}")
-
-    message_attachments = []
-
-    if files_data:
-        for filename, content, mime_type in files_data:
-            if 'image' in mime_type:
-                file_type = 'image'
-            elif 'video' in mime_type:
-                file_type = 'video'
-            else:
-                print(f" ⚠️ Файл {filename} пропущен (неподдерживаемый тип {mime_type})")
-                continue
-
-            try:
-                upload_req = requests.post(
-                    "https://platform-api.max.ru/uploads",
-                    params={'type': file_type},
-                    headers={'Authorization': MAX_BOT_TOKEN},
-                    timeout=30
-                )
-                if upload_req.status_code != 200:
-                    print(f"   ❌ Не удалось получить URL: {upload_req.status_code} - {upload_req.text[:100]}")
-                    continue
-                upload_data = upload_req.json()
-                if 'url' not in upload_data:
-                    print(f"   ❌ Ответ /uploads не содержит url: {upload_data}")
-                    continue
-                upload_url = upload_data['url']
-                print(f"   ✅ URL получен: {upload_url[:80]}...")
-
-                files = {'data': (filename, content, mime_type)}
-                headers_upload = {'Authorization': MAX_BOT_TOKEN}
-                upload_file_resp = requests.post(
-                    upload_url,
-                    files=files,
-                    headers=headers_upload,
-                    timeout=60
-                )
-                if upload_file_resp.status_code != 200:
-                    print(f"   ❌ Ошибка загрузки: {upload_file_resp.status_code} - {upload_file_resp.text[:200]}")
-                    continue
-
-                upload_result = upload_file_resp.json()
-                print(f"   ✅ Ответ загрузки: {upload_result}")
-                photos = upload_result.get('photos')
-                if not photos:
-                    print(f"   ❌ В ответе загрузки нет поля 'photos'")
-                    continue
-                first_photo_key = next(iter(photos))
-                token_info = photos[first_photo_key]
-                file_token = token_info.get('token')
-                if not file_token:
-                    print(f"   ❌ В ответе загрузки нет token в photos")
-                    continue
-
-                print(f"   ✅ Файл загружен, token={file_token[:10]}...")
-                time.sleep(1.0)
-
-                message_attachments.append({
-                    'type': file_type,
-                    'payload': {
-                        'token': file_token,
-                        'name': filename
-                    }
-                })
-                print(f"   ✅ Вложение добавлено для {filename}")
-
-            except Exception as e:
-                print(f"🔥 Ошибка при обработке {filename}: {e}")
-                import traceback
-                traceback.print_exc()
-
-    message_body = {}
-    if text:
-        message_body['text'] = text
-        message_body['format'] = 'html'
-    if message_attachments:
-        message_body['attachments'] = message_attachments
-
-    if not message_body:
-        return {"ok": False, "error": "Нет контента для отправки", "skipped": True}
-
-    try:
-        print(f"   → Отправляем сообщение в MAX (текст={bool(text)}, вложений={len(message_attachments)})")
-        send_msg_resp = requests.post(
-            f"https://platform-api.max.ru/messages?chat_id={chat_id}",
-            headers={'Authorization': MAX_BOT_TOKEN, 'Content-Type': 'application/json'},
-            json=message_body,
-            timeout=(8, 30)
-        )
-        if send_msg_resp.status_code == 200:
-            print("   ✅ Сообщение в MAX отправлено")
-            return {"ok": True, "result": send_msg_resp.json()}
-        else:
-            print(f"   ❌ Ошибка отправки сообщения: {send_msg_resp.status_code} - {send_msg_resp.text[:200]}")
-            return {"ok": False, "error": send_msg_resp.text}
-    except requests.Timeout:
-        print("⏱️ MAX timeout")
-        return {"ok": False, "error": "MAX timeout"}
-    except requests.RequestException as e:
-        print(f"🌐 MAX request error: {e}")
-        return {"ok": False, "error": f"MAX request error: {e}"}
-    except Exception as e:
-        print(f"🔥 Ошибка при отправке сообщения: {e}")
         return {"ok": False, "error": str(e)}
 
 def _resolve_user():
@@ -442,6 +376,7 @@ def create_app():
                     len(content),
                     f.mimetype,
                 )
+            files_data = prepare_files_for_publish(files_data)
 
             if not telegram_chat_id:
                 app.logger.warning("POST /post: missing telegram chat_id")
@@ -462,10 +397,24 @@ def create_app():
             job_id = create_job(payload, {"username": current_username, "role": role})
 
             def _publish():
-                tg_result = send_to_telegram(payload["telegram_chat_id"], payload["text"], payload["files_data"])
-                max_result = {"ok": False, "skipped": True}
-                if payload["max_chat_id"] and MAX_BOT_TOKEN:
-                    max_result = send_to_max(payload["max_chat_id"], payload["text"], payload["files_data"])
+                def _run_telegram():
+                    return send_to_telegram(payload["telegram_chat_id"], payload["text"], payload["files_data"])
+
+                def _run_max():
+                    if payload["max_chat_id"] and MAX_BOT_TOKEN:
+                        return max_send_message(
+                            payload["max_chat_id"],
+                            payload["text"],
+                            payload["files_data"],
+                            MAX_BOT_TOKEN,
+                        )
+                    return {"ok": False, "skipped": True}
+
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    fut_tg = pool.submit(_run_telegram)
+                    fut_mx = pool.submit(_run_max)
+                    tg_result = fut_tg.result()
+                    max_result = fut_mx.result()
                 all_ok = (tg_result.get("ok", False) or tg_result.get("skipped", False)) and (
                     max_result.get("ok", False) or max_result.get("skipped", False)
                 )

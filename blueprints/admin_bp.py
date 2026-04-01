@@ -1,7 +1,7 @@
 from flask import Blueprint, flash, redirect, render_template, request, url_for
 
 from auth import admin_required, web_login_required
-from forms.admin_forms import ChannelForm, TemplateForm, UserForm
+from forms.admin_forms import ChannelForm, TemplateForm, UserForm, validate_template_location
 from services.publish_queue import list_history
 from services.sheets import sheets_service
 
@@ -120,12 +120,26 @@ def templates_list():
 def templates_create():
     form = TemplateForm()
     if form.validate_on_submit():
+        category = request.form.get("category", "").strip()
+        module = request.form.get("module", "").strip()
+        lesson = request.form.get("lesson", "").strip()
+        ok, err = validate_template_location(category, module, lesson)
+        if not ok:
+            flash(err or "Проверьте категорию, модуль и занятие", "danger")
+            return render_template(
+                "admin/template_form.html",
+                form=form,
+                mode="create",
+                initial_category=category,
+                initial_module=module,
+                initial_lesson=lesson,
+            )
         sheets_service.create_template(
             {
                 "name": form.name.data,
-                "category": form.category.data,
-                "module": form.module.data,
-                "lesson": form.lesson.data,
+                "category": category,
+                "module": module,
+                "lesson": lesson,
                 "post_text": form.post_text.data,
             }
         )
@@ -145,19 +159,42 @@ def templates_edit(row_number):
         return redirect(url_for("admin.templates_list"))
     form = TemplateForm(data=tpl)
     if form.validate_on_submit():
+        category = request.form.get("category", "").strip()
+        module = request.form.get("module", "").strip()
+        lesson = request.form.get("lesson", "").strip()
+        ok, err = validate_template_location(category, module, lesson)
+        if not ok:
+            flash(err or "Проверьте категорию, модуль и занятие", "danger")
+            return render_template(
+                "admin/template_form.html",
+                form=form,
+                mode="edit",
+                row_number=row_number,
+                initial_category=category,
+                initial_module=module,
+                initial_lesson=lesson,
+            )
         sheets_service.update_template(
             row_number,
             {
                 "name": form.name.data,
-                "category": form.category.data,
-                "module": form.module.data,
-                "lesson": form.lesson.data,
+                "category": category,
+                "module": module,
+                "lesson": lesson,
                 "post_text": form.post_text.data,
             },
         )
         flash("Шаблон обновлен", "success")
         return redirect(url_for("admin.templates_list"))
-    return render_template("admin/template_form.html", form=form, mode="edit", row_number=row_number)
+    return render_template(
+        "admin/template_form.html",
+        form=form,
+        mode="edit",
+        row_number=row_number,
+        initial_category=(tpl.get("category") or "").strip(),
+        initial_module=(tpl.get("module") or "").strip(),
+        initial_lesson=(tpl.get("lesson") or "").strip(),
+    )
 
 
 @admin_bp.route("/templates/<int:row_number>/delete", methods=["POST"])
@@ -199,7 +236,7 @@ def channels_create():
         sheets_service.create_main_channel(_channel_payload(form))
         flash("Канал добавлен", "success")
         return redirect(url_for("admin.channels_list"))
-    return render_template("admin/channel_form.html", form=form, mode="create", endpoint="admin.channels_create", back_url="admin.channels_list")
+    return render_template("admin/channel_form.html", form=form, mode="create", endpoint="admin.channels_create")
 
 
 @admin_bp.route("/channels/<int:row_number>/edit", methods=["GET", "POST"])
@@ -216,7 +253,7 @@ def channels_edit(row_number):
         sheets_service.update_main_channel(row_number, _channel_payload(form))
         flash("Канал обновлен", "success")
         return redirect(url_for("admin.channels_list"))
-    return render_template("admin/channel_form.html", form=form, mode="edit", endpoint="admin.channels_edit", row_number=row_number, back_url="admin.channels_list")
+    return render_template("admin/channel_form.html", form=form, mode="edit", endpoint="admin.channels_edit", row_number=row_number)
 
 
 @admin_bp.route("/channels/<int:row_number>/delete", methods=["POST"])
@@ -244,7 +281,7 @@ def camp_channels_create():
         sheets_service.create_camp_channel(_channel_payload(form))
         flash("Канал КШ добавлен", "success")
         return redirect(url_for("admin.camp_channels_list"))
-    return render_template("admin/channel_form.html", form=form, mode="create", endpoint="admin.camp_channels_create", back_url="admin.camp_channels_list")
+    return render_template("admin/channel_form.html", form=form, mode="create", endpoint="admin.camp_channels_create")
 
 
 @admin_bp.route("/camp-channels/<int:row_number>/edit", methods=["GET", "POST"])
@@ -261,7 +298,7 @@ def camp_channels_edit(row_number):
         sheets_service.update_camp_channel(row_number, _channel_payload(form))
         flash("Канал КШ обновлен", "success")
         return redirect(url_for("admin.camp_channels_list"))
-    return render_template("admin/channel_form.html", form=form, mode="edit", endpoint="admin.camp_channels_edit", row_number=row_number, back_url="admin.camp_channels_list")
+    return render_template("admin/channel_form.html", form=form, mode="edit", endpoint="admin.camp_channels_edit", row_number=row_number)
 
 
 @admin_bp.route("/camp-channels/<int:row_number>/delete", methods=["POST"])
