@@ -4,6 +4,8 @@ from flask_wtf import FlaskForm
 from wtforms import BooleanField, PasswordField, StringField, SubmitField, TextAreaField
 from wtforms.validators import DataRequired, Length, Optional as OptionalValidator
 
+from forms.post_constants import COMPENSATORY_CATEGORY
+
 # Синхронно со страницей «Занятия» (templates/test.html)
 VALID_TEMPLATE_CATEGORIES = frozenset(
     {
@@ -54,6 +56,10 @@ def validate_template_location(category: str, module: str, lesson: str) -> Tuple
         return False, "Выберите категорию"
     if category not in VALID_TEMPLATE_CATEGORIES:
         return False, "Недопустимая категория"
+    if category == COMPENSATORY_CATEGORY:
+        if module or lesson:
+            return False, "Для компенсирующего занятия оставьте модуль и занятие пустыми"
+        return True, None
     if not module:
         return False, "Выберите модуль"
     if not lesson:

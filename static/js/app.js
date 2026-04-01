@@ -27,10 +27,13 @@
   const channelSelect = document.getElementById("channel");
   const telegramHidden = document.getElementById("telegram_chat_id");
   const maxHidden = document.getElementById("max_chat_id");
+  const COMPENSATORY = "Компенсирующее занятие";
   const categorySelect = document.getElementById("category");
   const moduleSelect = document.getElementById("module");
   const lessonSelect = document.getElementById("lesson");
+  const weekdaySelect = document.getElementById("weekday");
   const timeSelect = document.getElementById("time");
+  const moduleLessonFields = document.getElementById("moduleLessonFields");
 
   const months = [
     "январь", "февраль", "март", "апрель", "май", "июнь",
@@ -59,6 +62,23 @@
       moduleSelect.appendChild(option);
     });
     updateLessons();
+  }
+
+  function applyCompensatoryUi() {
+    const isComp = categorySelect && categorySelect.value === COMPENSATORY;
+    if (moduleLessonFields) {
+      moduleLessonFields.classList.toggle("d-none", isComp);
+    }
+    if (moduleSelect) {
+      moduleSelect.required = !isComp;
+      if (isComp) moduleSelect.value = "";
+    }
+    if (lessonSelect) {
+      lessonSelect.required = !isComp;
+      if (isComp) lessonSelect.value = "";
+    }
+    if (isComp) return;
+    updateModules();
   }
 
   function updateLessons() {
@@ -94,11 +114,11 @@
   }
 
   channelSelect?.addEventListener("change", syncChannelIds);
-  categorySelect?.addEventListener("change", updateModules);
+  categorySelect?.addEventListener("change", applyCompensatoryUi);
   moduleSelect?.addEventListener("change", updateLessons);
 
   syncChannelIds();
-  if (categorySelect) updateModules();
+  if (categorySelect) applyCompensatoryUi();
   fillTimeOptions();
 
   const previewOverlay = document.getElementById("previewOverlay");
@@ -132,6 +152,17 @@
     };
 
     submitBtn?.addEventListener("click", async () => {
+      const mode = postForm.dataset.formMode || "";
+      if (mode === "camp") {
+        const ta = postForm.querySelector("[name=user_text]");
+        const mediaInput = document.getElementById("media_files");
+        const hasText = ta && ta.value.trim().length > 0;
+        const hasFiles = mediaInput && mediaInput.files && mediaInput.files.length > 0;
+        if (!hasText && !hasFiles) {
+          alert("Введите текст поста или прикрепите фото/видео.");
+          return;
+        }
+      }
       if (!postForm.reportValidity()) return;
       await loadPreview();
       openPreview();

@@ -21,13 +21,25 @@ MAX_ATTACHMENTS_PER_MESSAGE = 3
 
 
 def _extract_token_from_upload_body(upload_result: Any, file_type: str) -> Optional[str]:
-    """Достаёт token из ответа после заливки файла (разные схемы для image / video)."""
+    """Достаёт token из ответа после заливки (image/file) или из retval/вложенных структур (video)."""
+    if upload_result is None:
+        return None
+    if isinstance(upload_result, str) and upload_result.strip():
+        return upload_result.strip()
     if not isinstance(upload_result, dict):
         return None
     top = upload_result.get("token")
     if isinstance(top, str) and top:
         return top
-    for key in ("photos", "videos", "files", "attachments", "images"):
+    # MAX для видео/аудио иногда возвращает retval (строка или объект)
+    rv = upload_result.get("retval")
+    if isinstance(rv, str) and rv.strip():
+        return rv.strip()
+    if isinstance(rv, dict):
+        t = rv.get("token")
+        if isinstance(t, str) and t:
+            return t
+    for key in ("photos", "videos", "files", "attachments", "images", "video"):
         block = upload_result.get(key)
         if isinstance(block, dict):
             for v in block.values():
@@ -69,13 +81,17 @@ def _max_upload_one(
             logger.warning("MAX /uploads missing url: %s", upload_data)
             return None
         upload_url = upload_data["url"]
+        # Для video/audio в ответе POST /uploads иногда сразу есть token (документация dev.max.ru)
+        token_from_slot = upload_data.get("token")
+        if isinstance(token_from_slot, str) and token_from_slot:
+            logger.info("MAX /uploads returned token in first response (type=%s)", file_type)
 
         files = {"data": (filename, content, mime_type)}
         upload_file_resp = session.post(
             upload_url,
             files=files,
             headers={"Authorization": auth_token},
-            timeout=(30, 120),
+            timeout=(30, 300),
         )
         if upload_file_resp.status_code != 200:
             logger.warning(
@@ -83,21 +99,33 @@ def _max_upload_one(
             )
             return None
 
-        try:
-            upload_result = upload_file_resp.json()
-        except json.JSONDecodeError:
-            logger.warning("MAX upload response not JSON: %s", upload_file_resp.text[:200])
-            return None
+        upload_result: Any = None
+        if upload_file_resp.text and upload_file_resp.text.strip():
+            try:
+                upload_result = upload_file_resp.json()
+            except json.JSONDecodeError:
+                logger.warning("MAX upload response not JSON: %s", upload_file_resp.text[:200])
+                upload_result = None
 
-        token = _extract_token_from_upload_body(upload_result, file_type)
+        token = _extract_token_from_upload_body(upload_result, file_type) if upload_result else None
+        if not token and isinstance(token_from_slot, str) and token_from_slot:
+            token = token_from_slot
+            logger.info("MAX: using token from POST /uploads (after CDN upload ok)")
         if not token:
-            logger.warning("MAX upload: no token in body: %s", str(upload_result)[:500])
+            logger.warning(
+                "MAX upload: no token (after CDN). first=%s second=%s",
+                str(upload_data)[:400],
+                str(upload_result)[:400] if upload_result is not None else "null",
+            )
             return None
 
-        return {
-            "type": file_type,
-            "payload": {"token": token, "name": filename},
-        }
+        # Видео в API MAX: в примере только token в payload; лишнее поле name может мешать
+        if file_type == "video":
+            payload: Dict[str, Any] = {"token": token}
+        else:
+            payload = {"token": token, "name": filename or "file"}
+
+        return {"type": file_type, "payload": payload}
     except requests.RequestException as e:
         logger.warning("MAX upload request error: %s", e)
         return None
@@ -108,32 +136,49 @@ def _max_send_message(
     auth_token: str,
     chat_id: str,
     message_body: Dict[str, Any],
-    max_retries: int = 6,
+    max_retries: int = 12,
 ) -> Tuple[bool, Any]:
     """Отправка с повтором при attachment.not.ready (видео обрабатывается на стороне MAX)."""
     url = f"{MAX_MESSAGES_URL}?chat_id={chat_id}"
     last_err = None
+    has_video = any(
+        (a.get("type") == "video") for a in (message_body.get("attachments") or []) if isinstance(a, dict)
+    )
     for attempt in range(max_retries):
         try:
             resp = session.post(
                 url,
                 headers={"Authorization": auth_token, "Content-Type": "application/json"},
                 json=message_body,
-                timeout=(10, 60),
+                timeout=(15, 120 if has_video else 60),
             )
             if resp.status_code == 200:
                 return True, resp.json()
-            text = (resp.text or "")[:500]
+            text = (resp.text or "")[:800]
             last_err = text
-            if resp.status_code >= 400 and ("not.ready" in text.lower() or "not_ready" in text.lower()):
-                delay = min(2.0, 0.4 * (2**attempt))
-                logger.info("MAX message: attachment not ready, retry in %ss", delay)
+            retry_later = False
+            if resp.status_code >= 400:
+                low = text.lower()
+                if "not.ready" in low or "not_ready" in low or "not.processed" in low:
+                    retry_later = True
+                else:
+                    try:
+                        err_j = resp.json()
+                        code = str(err_j.get("code", "") or "")
+                        msg = str(err_j.get("message", "") or "")
+                        if "not.ready" in code.lower() or "not.processed" in msg.lower():
+                            retry_later = True
+                    except (json.JSONDecodeError, ValueError):
+                        pass
+            if retry_later:
+                delay = min(8.0, 0.6 * (1.6**attempt))
+                logger.info("MAX message: attachment not ready, retry in %.1fs (attempt %s)", delay, attempt + 1)
                 time.sleep(delay)
                 continue
             return False, text
         except requests.Timeout:
             last_err = "timeout"
-            time.sleep(0.5 * (attempt + 1))
+            time.sleep(min(5.0, 0.8 * (attempt + 1)))
     return False, last_err or "MAX send failed"
 
 

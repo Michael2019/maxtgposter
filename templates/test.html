@@ -35,8 +35,11 @@
             <option value="ОЛиП">ОЛиП</option>
             <option value="Хакер">Хакер</option>
             <option value="Юнити">Юнити</option>
+            <option value="Компенсирующее занятие">Компенсирующее занятие</option>
           </select>
         </div>
+        <div id="moduleLessonFields" class="col-12">
+          <div class="row g-3">
         <div class="col-md-6">
           <label class="form-label">Модуль</label>
           <select class="form-select form-pill" id="module" name="module" required>
@@ -49,6 +52,10 @@
             <option value="">-- Занятие --</option>
           </select>
         </div>
+          </div>
+        </div>
+        <div class="col-12">
+          <div class="row g-3">
         <div class="col-md-6">
           <label class="form-label">День недели</label>
           <select class="form-select form-pill" id="weekday" name="weekday" required>
@@ -68,6 +75,8 @@
             <option value="">-- Время --</option>
           </select>
         </div>
+          </div>
+        </div>
         <div class="col-12">
           <label class="form-label">📢 Канал (Telegram + MAX)</label>
           <select class="form-select form-pill" id="channel" name="channel" required>
@@ -82,7 +91,7 @@
           </select>
         </div>
         <div class="col-12">
-          <label class="form-label">🖼️ Фото и видео (до 5 шт.)</label>
+          <label class="form-label">🖼️ Фото и видео (необязательно, до 5 шт.)</label>
           <input id="media_files" name="media_files" type="file" class="form-control form-pill file-pill" multiple accept="image/*,video/*,image/heic,image/heif,.heic,.heif">
         </div>
       </div>

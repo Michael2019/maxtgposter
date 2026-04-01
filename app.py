@@ -21,6 +21,7 @@ from extensions import cache, csrf, jwt
 from services.media_files import prepare_files_for_publish, sniff_telegram_media_kind
 from services.publish_max import send_to_max as max_send_message
 from services.publish_queue import create_job, get_job, run_job_async
+from forms.post_constants import COMPENSATORY_CATEGORY
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 MAX_BOT_TOKEN = os.environ.get("MAX_BOT_TOKEN")
@@ -35,6 +36,8 @@ _TEMPLATE_CSV_TTL_SEC = 300.0
 
 
 def get_post_template(category, module, lesson):
+    if str(category).strip() == COMPENSATORY_CATEGORY:
+        return COMPENSATORY_CATEGORY
     fallback = f"{category}, модуль {module}, занятие {lesson}"
     try:
         if not SHEETS_CSV_URL:
@@ -92,7 +95,23 @@ def build_post_text_payload(form_data, role):
     time_val = form_data.get('time', '')
     form_type = form_data.get('form_type', 'lessons')
 
-    if user_text:
+    if str(category).strip() == COMPENSATORY_CATEGORY:
+        base_text = user_text if user_text else get_post_template(category, module, lesson)
+        tags = []
+        if weekday and time_val:
+            tags.append(f"#{weekday.lower()}_{time_val.replace(':', '_')}")
+        if category:
+            tags.append(f"#{re.sub(r'[^\w\s-]', '', category).replace(' ', '_')}")
+        full_text = f"{' '.join(tags)}\n{base_text}".strip() if tags else base_text
+        role_s = str(role or "").strip()
+        signature = ""
+        if role_s and role_s.lower() not in ("admin", "user", "moderator"):
+            signature = f"\n\nВаш наставник {role_s}" if form_type == "camp" else f"\n\nВаш преподаватель {role_s}"
+        return trim_text_to_limit(full_text, signature, 4096)
+
+    if form_type == "camp":
+        base_text = user_text if user_text else ""
+    elif user_text:
         base_text = user_text
     else:
         base_text = get_post_template(category, module, lesson)
@@ -368,7 +387,11 @@ def create_app():
 
             files_data = []
             for f in uploaded_files:
+                if not f or not getattr(f, "filename", None):
+                    continue
                 content = f.read()
+                if not content:
+                    continue
                 files_data.append((f.filename, content, f.mimetype))
                 app.logger.info(
                     "POST /post: file loaded name=%s size=%s mime=%s",
@@ -387,6 +410,14 @@ def create_app():
 
             final_text = build_post_text_payload(request.form, role)
             app.logger.info("POST /post: final_text_len=%s", len(final_text))
+
+            if not (final_text or "").strip() and not files_data:
+                msg = "Добавьте текст поста или вложения"
+                app.logger.warning("POST /post: empty text and no files")
+                if wants_json:
+                    return jsonify({"error": msg, "ok": False}), 400
+                flash(msg, "danger")
+                return _form_redirect_with_flash()
 
             payload = {
                 "telegram_chat_id": telegram_chat_id,

@@ -41,8 +41,11 @@
             <option value="ОЛиП">ОЛиП</option>
             <option value="Хакер">Хакер</option>
             <option value="Юнити">Юнити</option>
+            <option value="Компенсирующее занятие">Компенсирующее занятие</option>
           </select>
         </div>
+        <div id="templateAdminStdFields" class="col-12">
+          <div class="row g-3">
         <div class="col-md-6">
           <label class="form-label" for="module">Модуль</label>
           <select class="form-select" id="module" name="module" required>
@@ -54,6 +57,8 @@
           <select class="form-select" id="lesson" name="lesson" required>
             <option value="">-- Занятие --</option>
           </select>
+        </div>
+          </div>
         </div>
         <div class="col-12">{{ form.post_text.label(class="form-label") }}{{ form.post_text(class="form-control", rows=6) }}</div>
       </div>
@@ -68,10 +73,27 @@
   const categorySelect = document.getElementById("category");
   const moduleSelect = document.getElementById("module");
   const lessonSelect = document.getElementById("lesson");
+  const COMPENSATORY = "Компенсирующее занятие";
+  const stdFields = document.getElementById("templateAdminStdFields");
   const months = [
     "январь", "февраль", "март", "апрель", "май", "июнь",
     "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь",
   ];
+
+  function applyTemplateCompensatory() {
+    const isComp = categorySelect && categorySelect.value === COMPENSATORY;
+    if (stdFields) stdFields.classList.toggle("d-none", isComp);
+    if (moduleSelect) {
+      moduleSelect.required = !isComp;
+      if (isComp) moduleSelect.value = "";
+    }
+    if (lessonSelect) {
+      lessonSelect.required = !isComp;
+      if (isComp) lessonSelect.value = "";
+    }
+    if (isComp) return;
+    updateModules();
+  }
 
   function updateModules() {
     if (!categorySelect || !moduleSelect) return;
@@ -106,17 +128,19 @@
     }
   }
 
-  categorySelect.addEventListener("change", updateModules);
+  categorySelect.addEventListener("change", applyTemplateCompensatory);
   moduleSelect.addEventListener("change", updateLessons);
 
   const ic = form.dataset.initialCategory || "";
   const im = form.dataset.initialModule || "";
   const il = form.dataset.initialLesson || "";
   if (ic) categorySelect.value = ic;
-  updateModules();
-  if (im) moduleSelect.value = im;
-  updateLessons();
-  if (il) lessonSelect.value = il;
+  applyTemplateCompensatory();
+  if (categorySelect.value !== COMPENSATORY) {
+    if (im) moduleSelect.value = im;
+    updateLessons();
+    if (il) lessonSelect.value = il;
+  }
 })();
 </script>
 {% endblock %}
