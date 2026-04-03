@@ -50,6 +50,32 @@ def list_history(limit=100):
     return data[:limit]
 
 
+def _parse_iso_datetime(value):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+
+
+def list_history_between(start_dt=None, end_dt=None, limit=500):
+    items = list_history(limit=limit)
+    if not start_dt and not end_dt:
+        return items
+    filtered = []
+    for item in items:
+        created = _parse_iso_datetime(item.get("created_at"))
+        if not created:
+            continue
+        if start_dt and created < start_dt:
+            continue
+        if end_dt and created > end_dt:
+            continue
+        filtered.append(item)
+    return filtered
+
+
 def _append_history(entry):
     with _lock:
         _history.appendleft(entry)
@@ -60,26 +86,34 @@ def run_job_async(job_id, fn):
         update_job(job_id, status="running", started_at=_now_iso())
         try:
             result = fn()
-            update_job(job_id, status="done", finished_at=_now_iso(), result=result)
+            finished_at = _now_iso()
+            update_job(job_id, status="done", finished_at=finished_at, result=result)
+            with _lock:
+                created_at = _jobs.get(job_id, {}).get("created_at")
+                user = _jobs.get(job_id, {}).get("user")
             _append_history(
                 {
                     "id": job_id,
-                    "created_at": _jobs[job_id]["created_at"],
-                    "finished_at": _now_iso(),
+                    "created_at": created_at,
+                    "finished_at": finished_at,
                     "status": "done",
-                    "user": _jobs[job_id]["user"],
+                    "user": user,
                     "summary": result,
                 }
             )
         except Exception as exc:
-            update_job(job_id, status="failed", finished_at=_now_iso(), error=str(exc))
+            finished_at = _now_iso()
+            update_job(job_id, status="failed", finished_at=finished_at, error=str(exc))
+            with _lock:
+                created_at = _jobs.get(job_id, {}).get("created_at")
+                user = _jobs.get(job_id, {}).get("user")
             _append_history(
                 {
                     "id": job_id,
-                    "created_at": _jobs[job_id]["created_at"],
-                    "finished_at": _now_iso(),
+                    "created_at": created_at,
+                    "finished_at": finished_at,
                     "status": "failed",
-                    "user": _jobs[job_id]["user"],
+                    "user": user,
                     "summary": {"error": str(exc)},
                 }
             )

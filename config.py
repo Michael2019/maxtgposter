@@ -27,6 +27,6 @@ class Config:
 
     # Caching
     CACHE_TYPE = "SimpleCache"
-    CACHE_DEFAULT_TIMEOUT = int(os.environ.get("CACHE_DEFAULT_TIMEOUT", "600"))
+    CACHE_DEFAULT_TIMEOUT = int(os.environ.get("CACHE_DEFAULT_TIMEOUT", "1800"))
 
 config = Config()

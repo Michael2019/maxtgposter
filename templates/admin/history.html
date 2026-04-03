@@ -7,6 +7,38 @@
     <h1 class="h4 mb-0">История отправок</h1>
   </div>
 </div>
+
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-sm-4 col-md-3">
+        <label class="form-label mb-1">С даты</label>
+        <input type="date" name="start_date" class="form-control" value="{{ start_date or '' }}">
+      </div>
+      <div class="col-sm-4 col-md-3">
+        <label class="form-label mb-1">По дату</label>
+        <input type="date" name="end_date" class="form-control" value="{{ end_date or '' }}">
+      </div>
+      <div class="col-sm-4 col-md-6 d-flex gap-2">
+        <button type="submit" class="btn btn-outline-primary">Применить фильтр</button>
+        <button
+          type="submit"
+          class="btn btn-primary"
+          formaction="{{ url_for('admin.publish_history_report') }}"
+          formtarget="_blank"
+          rel="noopener"
+        >
+          Открыть отчет
+        </button>
+        <a href="{{ url_for('admin.publish_history') }}" class="btn btn-outline-secondary">Сбросить</a>
+      </div>
+    </form>
+    {% if filter_error %}
+      <div class="alert alert-danger mt-3 mb-0 py-2">{{ filter_error }}</div>
+    {% endif %}
+  </div>
+</div>
+
 <div class="table-responsive card border-0 shadow-sm">
   <table class="table mb-0">
     <thead>

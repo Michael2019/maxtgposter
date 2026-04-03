@@ -10,6 +10,9 @@ from gspread.exceptions import WorksheetNotFound
 
 from extensions import cache
 
+
+SHEETS_CACHE_TTL_SEC = 1800
+
 DEFAULT_MAIN_CHANNELS = [
     {"name": "test", "label": "Тестовый канал", "emoji": "🔵", "telegram_chat_id": "-1003547986217", "max_chat_id": "-72270757000562"},
     {"name": "APT", "label": "АПТ", "emoji": "💊", "telegram_chat_id": "-1001431896570", "max_chat_id": "-72124844461510"},
@@ -145,7 +148,7 @@ class GoogleSheetsService:
             row["id"] = row.get("id") or str(idx - 1)
         return records
 
-    @cache.cached(timeout=600, key_prefix="users_records")
+    @cache.cached(timeout=SHEETS_CACHE_TTL_SEC, key_prefix="users_records")
     def get_users(self):
         sheet_name = current_app.config.get("GOOGLE_USERS_SHEET")
         sheet = self._get_sheet(sheet_name)
@@ -160,7 +163,7 @@ class GoogleSheetsService:
             current_app.logger.info("Sheets: users columns in first row=%r", list(records[0].keys()))
         return records
 
-    @cache.cached(timeout=600, key_prefix="template_records")
+    @cache.cached(timeout=SHEETS_CACHE_TTL_SEC, key_prefix="template_records")
     def get_templates(self):
         sheet = self._get_sheet(current_app.config.get("GOOGLE_TEMPLATES_SHEET"))
         if not sheet:
@@ -169,7 +172,7 @@ class GoogleSheetsService:
         return self._normalize_records(records)
 
     def _get_channels(self, sheet_name, cache_key, defaults):
-        @cache.cached(timeout=600, key_prefix=cache_key)
+        @cache.cached(timeout=SHEETS_CACHE_TTL_SEC, key_prefix=cache_key)
         def _loader():
             sheet = self._get_sheet(sheet_name)
             if not sheet:

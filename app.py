@@ -29,10 +29,11 @@ TELEGRAM_API_BASE_URL = os.environ.get("TELEGRAM_API_BASE_URL", "https://api.tel
 TELEGRAM_PROXY_URL = os.environ.get("TELEGRAM_PROXY_URL")
 TELEGRAM_API_URL = f"{TELEGRAM_API_BASE_URL}/bot{BOT_TOKEN}" if BOT_TOKEN else ""
 SHEETS_CSV_URL = os.environ.get("SHEETS_CSV_URL")
+_templates_http = requests.Session()
 
 # Кэш CSV шаблонов из Google Sheets — снижает задержку перед постановкой в очередь
 _TEMPLATE_CSV_CACHE = {"rows": None, "fetched_at": 0.0}
-_TEMPLATE_CSV_TTL_SEC = 300.0
+_TEMPLATE_CSV_TTL_SEC = float(os.environ.get("TEMPLATE_CSV_TTL_SEC", "1800"))
 
 
 def get_post_template(category, module, lesson):
@@ -45,7 +46,7 @@ def get_post_template(category, module, lesson):
         now = time.monotonic()
         rows = _TEMPLATE_CSV_CACHE["rows"]
         if rows is None or (now - _TEMPLATE_CSV_CACHE["fetched_at"]) > _TEMPLATE_CSV_TTL_SEC:
-            response = requests.get(SHEETS_CSV_URL, timeout=10)
+            response = _templates_http.get(SHEETS_CSV_URL, timeout=10)
             response.raise_for_status()
             csv_data = response.content.decode("utf-8")
             reader = csv.DictReader(StringIO(csv_data))
@@ -96,18 +97,13 @@ def build_post_text_payload(form_data, role):
     form_type = form_data.get('form_type', 'lessons')
 
     if str(category).strip() == COMPENSATORY_CATEGORY:
-        base_text = user_text if user_text else get_post_template(category, module, lesson)
         tags = []
         if weekday and time_val:
             tags.append(f"#{weekday.lower()}_{time_val.replace(':', '_')}")
         if category:
             tags.append(f"#{re.sub(r'[^\w\s-]', '', category).replace(' ', '_')}")
-        full_text = f"{' '.join(tags)}\n{base_text}".strip() if tags else base_text
-        role_s = str(role or "").strip()
-        signature = ""
-        if role_s and role_s.lower() not in ("admin", "user", "moderator"):
-            signature = f"\n\nВаш наставник {role_s}" if form_type == "camp" else f"\n\nВаш преподаватель {role_s}"
-        return trim_text_to_limit(full_text, signature, 4096)
+        # Для компенсирующего занятия публикуем только хэштеги.
+        return " ".join(tags).strip()
 
     if form_type == "camp":
         base_text = user_text if user_text else ""

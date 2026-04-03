@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Отчет по отправкам{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+  <h1 class="h4 mb-0">Отчет по отправкам</h1>
+  <div class="text-muted small">
+    Период:
+    {% if start_date or end_date %}
+      {{ start_date or "..." }} — {{ end_date or "..." }}
+    {% else %}
+      весь период
+    {% endif %}
+  </div>
+</div>
+
+{% if filter_error %}
+  <div class="alert alert-danger">{{ filter_error }}</div>
+{% endif %}
+
+<div class="table-responsive card border-0 shadow-sm">
+  <table class="table mb-0">
+    <thead>
+      <tr>
+        <th>Фамилия</th>
+        <th>Имя</th>
+        <th>Кол-во постов за период</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in report_rows %}
+      <tr>
+        <td>{{ row.family or "—" }}</td>
+        <td>{{ row.name or "—" }}</td>
+        <td>{{ row.posts_count }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="3" class="text-muted">Нет данных за выбранный период</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -1,8 +1,10 @@
+from datetime import datetime, time, timezone
+
 from flask import Blueprint, flash, redirect, render_template, request, url_for
 
 from auth import admin_required, web_login_required
 from forms.admin_forms import ChannelForm, TemplateForm, UserForm, validate_template_location
-from services.publish_queue import list_history
+from services.publish_queue import list_history, list_history_between
 from services.sheets import sheets_service
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
@@ -14,13 +16,16 @@ admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 def dashboard():
     users = sheets_service.get_users()
     templates = sheets_service.get_templates()
+    main_channels = sheets_service.get_main_channels()
+    camp_channels = sheets_service.get_camp_channels()
+    history_items = list_history(200)
     return render_template(
         "admin/dashboard.html",
         users_count=len(users),
         templates_count=len(templates),
-        channels_count=len(sheets_service.get_main_channels()),
-        camp_channels_count=len(sheets_service.get_camp_channels()),
-        history_count=len(list_history(200)),
+        channels_count=len(main_channels),
+        camp_channels_count=len(camp_channels),
+        history_count=len(history_items),
     )
 
 
@@ -314,4 +319,85 @@ def camp_channels_delete(row_number):
 @web_login_required
 @admin_required
 def publish_history():
-    return render_template("admin/history.html", items=list_history(200))
+    start_date_raw, end_date_raw, start_dt, end_dt, filter_error = _parse_history_dates(request.args)
+
+    if filter_error:
+        items = list_history(500)
+    else:
+        items = list_history_between(start_dt=start_dt, end_dt=end_dt, limit=500)
+
+    return render_template(
+        "admin/history.html",
+        items=items,
+        start_date=start_date_raw,
+        end_date=end_date_raw,
+        filter_error=filter_error,
+    )
+
+
+def _parse_history_dates(args):
+    start_date_raw = (args.get("start_date") or "").strip()
+    end_date_raw = (args.get("end_date") or "").strip()
+
+    start_dt = None
+    end_dt = None
+    filter_error = None
+    try:
+        if start_date_raw:
+            start_dt = datetime.strptime(start_date_raw, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        if end_date_raw:
+            end_day = datetime.strptime(end_date_raw, "%Y-%m-%d").date()
+            end_dt = datetime.combine(end_day, time.max).replace(tzinfo=timezone.utc)
+        if start_dt and end_dt and start_dt > end_dt:
+            filter_error = "Начальная дата не может быть больше конечной"
+    except ValueError:
+        filter_error = "Неверный формат даты"
+    return start_date_raw, end_date_raw, start_dt, end_dt, filter_error
+
+
+def _build_posts_report_rows(items):
+    users = sheets_service.get_users()
+    users_by_username = {str(u.get("username", "")).strip(): u for u in users}
+    report_map = {}
+
+    for item in items:
+        if item.get("status") != "done":
+            continue
+        username = str((item.get("user") or {}).get("username", "")).strip()
+        user_row = users_by_username.get(username, {})
+        family = str(user_row.get("family", "")).strip()
+        name = str(user_row.get("role", "")).strip()
+        if not family and not name:
+            name = username or "—"
+        key = (family, name)
+        report_map[key] = report_map.get(key, 0) + 1
+
+    report_rows = [
+        {"family": family, "name": name, "posts_count": count}
+        for (family, name), count in sorted(
+            report_map.items(),
+            key=lambda x: (-x[1], (x[0][0] or "").lower(), (x[0][1] or "").lower()),
+        )
+    ]
+    return report_rows
+
+
+@admin_bp.route("/history/report")
+@web_login_required
+@admin_required
+def publish_history_report():
+    start_date_raw, end_date_raw, start_dt, end_dt, filter_error = _parse_history_dates(request.args)
+
+    if filter_error:
+        items = []
+    else:
+        items = list_history_between(start_dt=start_dt, end_dt=end_dt, limit=500)
+    report_rows = _build_posts_report_rows(items)
+
+    return render_template(
+        "admin/history_report.html",
+        report_rows=report_rows,
+        start_date=start_date_raw,
+        end_date=end_date_raw,
+        filter_error=filter_error,
+    )
