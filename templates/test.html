@@ -98,6 +98,7 @@
 
       <input type="hidden" name="chat_id" id="telegram_chat_id">
       <input type="hidden" name="max_chat_id" id="max_chat_id">
+      <input type="hidden" name="preview_final_text" id="preview_final_text" value="">
       <button type="button" class="btn btn-primary mt-3 px-4 w-100 w-md-auto" id="submitBtn">
         <span class="spinner-border spinner-border-sm d-none js-loader"></span>
         Опубликовать
@@ -112,7 +113,8 @@
       <h5 class="mb-0">Предпросмотр поста</h5>
       <button type="button" class="btn btn-sm btn-outline-secondary" id="closePreviewBtn">✕</button>
     </div>
-    <pre id="previewContent" class="mb-3 preview-content"></pre>
+    <label for="previewContent" class="form-label small text-muted mb-1">Текст поста (можно править перед отправкой)</label>
+    <textarea id="previewContent" class="form-control mb-2 preview-content" rows="12" spellcheck="true"></textarea>
     <div class="d-flex gap-2 justify-content-end">
       <button type="button" class="btn btn-outline-secondary" id="cancelPreviewBtn">Отмена</button>
       <button type="button" class="btn btn-primary" id="confirmPublishBtn">✅ Подтверждаю публикацию</button>

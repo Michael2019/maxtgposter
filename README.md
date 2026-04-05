@@ -225,6 +225,9 @@ USERS_CSV_URL=
 # Caching
 CACHE_DEFAULT_TIMEOUT=1800
 TEMPLATE_CSV_TTL_SEC=1800
+
+# Видео для Telegram: перекодирование в H.264 при наличии ffmpeg (1 — да, 0 — нет)
+TELEGRAM_VIDEO_TRANSCODE=1
 ```
 
 ### Альтернатива для Google credentials
@@ -300,6 +303,13 @@ python app.py
 - Проверить `BOT_TOKEN`.
 - Проверить `telegram_chat_id`.
 - Проверить, что бот добавлен в канал с правами публикации.
+
+### Видео в Telegram на Android ок, на iPhone «ломается»
+
+Часто виноваты кодек или контейнер (например WebM, HEVC в `.mov`/`.mp4`). Сервис при публикации может **перекодировать** такие ролики в **H.264 + AAC, MP4 с faststart** — но только если на сервере в `PATH` доступен **ffmpeg** (и не отключено переменной `TELEGRAM_VIDEO_TRANSCODE=0`).
+
+- Установите `ffmpeg` на машину/образ, где крутится приложение, и перезапустите сервис.
+- На Render по умолчанию ffmpeg может отсутствовать: тогда либо добавьте установку в build (свой Dockerfile / build command), либо загружайте уже готовые **MP4 H.264**.
 
 ### MAX не отправляет
 

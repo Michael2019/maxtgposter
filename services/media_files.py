@@ -1,10 +1,14 @@
 """
-Нормализация вложений перед публикацией: HEIC/HEIF → JPEG, уточнение MIME для видео.
+Нормализация вложений перед публикацией: HEIC/HEIF → JPEG, уточнение MIME для видео,
+опционально — перекодирование видео в H.264/AAC MP4 для стабильного воспроизведения в Telegram на iOS.
 """
 from __future__ import annotations
 
 import logging
 import os
+import shutil
+import subprocess
+import tempfile
 from io import BytesIO
 from typing import List, Optional, Tuple
 
@@ -95,4 +99,171 @@ def prepare_files_for_publish(
                 m = "video/mp4"
 
         out.append((fn, content, m))
+    return out
+
+
+def _video_needs_transcode_for_telegram(filename: str, mime: str, path: str) -> bool:
+    """Эвристика + ffprobe: что часто ломается в Telegram на iPhone."""
+    lower = (filename or "").lower()
+    m = (mime or "").lower()
+    ext = os.path.splitext(lower)[1]
+
+    if ext in (".webm", ".mkv", ".avi", ".3gp", ".mpeg", ".mpg"):
+        return True
+    if "webm" in m or m == "video/x-matroska":
+        return True
+    if ext == ".mov" or "quicktime" in m:
+        return True
+
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe or ext != ".mp4":
+        return False
+    try:
+        r = subprocess.run(
+            [
+                ffprobe,
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=codec_name",
+                "-of",
+                "default=nw=1:nk=1",
+                path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=45,
+        )
+        if r.returncode != 0:
+            return False
+        codec = (r.stdout or "").strip().lower()
+        if codec in ("hevc", "h265", "vp9", "av1", "mpeg2video"):
+            return True
+    except (subprocess.TimeoutExpired, OSError, ValueError):
+        pass
+    return False
+
+
+def _transcode_video_ffmpeg(filename: str, content: bytes) -> Optional[Tuple[str, bytes, str]]:
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        logger.info("ffmpeg not found; skip video transcode for Telegram/iOS compatibility")
+        return None
+
+    in_suffix = os.path.splitext(filename or "")[1] or ".bin"
+    out_path = None
+    in_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=in_suffix, delete=False) as fin:
+            fin.write(content)
+            in_path = fin.name
+
+        fd, out_path = tempfile.mkstemp(suffix=".mp4")
+        os.close(fd)
+
+        cmd = [
+            ffmpeg,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-i",
+            in_path,
+            "-map",
+            "0:v:0",
+            "-map",
+            "0:a?",
+            "-c:v",
+            "libx264",
+            "-profile:v",
+            "high",
+            "-level",
+            "4.1",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            out_path,
+        ]
+        r = subprocess.run(cmd, capture_output=True, timeout=600)
+        if r.returncode != 0:
+            err = (r.stderr or b"").decode("utf-8", errors="replace")[:800]
+            logger.warning("ffmpeg transcode failed for %s: %s", filename, err)
+            return None
+        with open(out_path, "rb") as f:
+            out_bytes = f.read()
+        if not out_bytes:
+            return None
+        base = os.path.splitext(filename or "video")[0] or "video"
+        return (f"{base}_h264.mp4", out_bytes, "video/mp4")
+    except subprocess.TimeoutExpired:
+        logger.warning("ffmpeg transcode timeout for %s", filename)
+        return None
+    except OSError as e:
+        logger.warning("ffmpeg transcode OS error for %s: %s", filename, e)
+        return None
+    finally:
+        for p in (in_path, out_path):
+            if p and os.path.isfile(p):
+                try:
+                    os.unlink(p)
+                except OSError:
+                    pass
+
+
+def ensure_telegram_friendly_videos(
+    files_data: List[Tuple[str, bytes, str]],
+) -> List[Tuple[str, bytes, str]]:
+    """
+    Для видео, которые часто плохо открываются в Telegram на iOS (WebM, MOV/HEVC, и т.д.),
+    перекодируем в H.264 + AAC MP4 с faststart, если в PATH есть ffmpeg.
+    Отключить: TELEGRAM_VIDEO_TRANSCODE=0
+    """
+    if os.environ.get("TELEGRAM_VIDEO_TRANSCODE", "1").strip().lower() in ("0", "false", "no"):
+        return files_data
+
+    if not shutil.which("ffmpeg"):
+        return files_data
+
+    out: List[Tuple[str, bytes, str]] = []
+    for filename, content, mime in files_data:
+        if sniff_telegram_media_kind(filename, mime) != "video":
+            out.append((filename, content, mime))
+            continue
+
+        in_suffix = os.path.splitext(filename or "")[1] or ".mp4"
+        probe_path = None
+        needs = False
+        try:
+            with tempfile.NamedTemporaryFile(suffix=in_suffix, delete=False) as fin:
+                fin.write(content)
+                probe_path = fin.name
+            needs = _video_needs_transcode_for_telegram(filename, mime, probe_path)
+        except OSError:
+            out.append((filename, content, mime))
+            continue
+        finally:
+            if probe_path and os.path.isfile(probe_path):
+                try:
+                    os.unlink(probe_path)
+                except OSError:
+                    pass
+
+        if not needs:
+            out.append((filename, content, mime))
+            continue
+
+        converted = _transcode_video_ffmpeg(filename, content)
+        if converted:
+            logger.info("Video transcoded for Telegram: %s -> %s", filename, converted[0])
+            out.append(converted)
+        else:
+            out.append((filename, content, mime))
+
     return out

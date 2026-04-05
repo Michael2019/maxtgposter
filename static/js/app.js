@@ -123,15 +123,31 @@
 
   const previewOverlay = document.getElementById("previewOverlay");
   const previewContent = document.getElementById("previewContent");
+  const previewFinalHidden = document.getElementById("preview_final_text");
   const submitBtn = document.getElementById("submitBtn");
   const confirmPublishBtn = document.getElementById("confirmPublishBtn");
   const closePreviewBtn = document.getElementById("closePreviewBtn");
   const cancelPreviewBtn = document.getElementById("cancelPreviewBtn");
   if (previewOverlay && previewContent && submitBtn && confirmPublishBtn) {
-    const openPreview = () => previewOverlay.classList.remove("d-none");
-    const closePreview = () => previewOverlay.classList.add("d-none");
+    const resetPreviewHidden = () => {
+      if (previewFinalHidden) previewFinalHidden.value = "";
+    };
+
+    const openPreview = () => {
+      previewOverlay.classList.remove("d-none");
+      if (confirmPublishBtn) {
+        confirmPublishBtn.disabled = false;
+        confirmPublishBtn.textContent = "✅ Подтверждаю публикацию";
+      }
+    };
+
+    const closePreview = () => {
+      previewOverlay.classList.add("d-none");
+      resetPreviewHidden();
+    };
 
     const loadPreview = async () => {
+      resetPreviewHidden();
       const payload = Object.fromEntries(new FormData(postForm).entries());
       try {
         submitBtn.disabled = true;
@@ -142,9 +158,9 @@
           body: JSON.stringify(payload),
         });
         const data = await resp.json();
-        previewContent.textContent = data.preview_text || data.error || "Нет данных";
+        previewContent.value = data.preview_text || data.error || "Нет данных";
       } catch (e) {
-        previewContent.textContent = `Ошибка предпросмотра: ${e}`;
+        previewContent.value = `Ошибка предпросмотра: ${e}`;
       } finally {
         submitBtn.disabled = false;
         submitBtn.textContent = "Опубликовать";
@@ -169,9 +185,12 @@
     });
 
     confirmPublishBtn?.addEventListener("click", () => {
+      if (previewFinalHidden) {
+        previewFinalHidden.value = (previewContent.value || "").trim();
+      }
       confirmPublishBtn.disabled = true;
       confirmPublishBtn.textContent = "Публикуем...";
-      closePreview();
+      previewOverlay.classList.add("d-none");
       const loader = postForm.querySelector(".js-loader");
       if (loader) loader.classList.remove("d-none");
       postForm.submit();

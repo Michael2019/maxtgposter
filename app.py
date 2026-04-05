@@ -18,7 +18,7 @@ from blueprints.admin_bp import admin_bp
 from blueprints.auth_bp import auth_bp
 from blueprints.main_bp import main_bp
 from extensions import cache, csrf, jwt
-from services.media_files import prepare_files_for_publish, sniff_telegram_media_kind
+from services.media_files import ensure_telegram_friendly_videos, prepare_files_for_publish, sniff_telegram_media_kind
 from services.publish_max import send_to_max as max_send_message
 from services.publish_queue import create_job, get_job, run_job_async
 from forms.post_constants import COMPENSATORY_CATEGORY
@@ -88,6 +88,10 @@ def split_text_chunks(text, chunk_size):
 
 
 def build_post_text_payload(form_data, role):
+    override = (form_data.get("preview_final_text") or "").strip()
+    if override:
+        return override[:4096] if len(override) > 4096 else override
+
     user_text = form_data.get('user_text', '').strip()
     category = form_data.get('category', '')
     module = form_data.get('module', '')
@@ -424,15 +428,17 @@ def create_app():
             job_id = create_job(payload, {"username": current_username, "role": role})
 
             def _publish():
+                files_for_send = ensure_telegram_friendly_videos(payload["files_data"])
+
                 def _run_telegram():
-                    return send_to_telegram(payload["telegram_chat_id"], payload["text"], payload["files_data"])
+                    return send_to_telegram(payload["telegram_chat_id"], payload["text"], files_for_send)
 
                 def _run_max():
                     if payload["max_chat_id"] and MAX_BOT_TOKEN:
                         return max_send_message(
                             payload["max_chat_id"],
                             payload["text"],
-                            payload["files_data"],
+                            files_for_send,
                             MAX_BOT_TOKEN,
                         )
                     return {"ok": False, "skipped": True}
