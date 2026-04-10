@@ -83,16 +83,19 @@ def users_edit(row_number):
     if request.method == "GET":
         form.is_admin.data = str(user.get("is_admin", "")).lower() in {"true", "1", "yes"}
     if form.validate_on_submit():
+        payload = {
+            "username": form.username.data,
+            "email": form.email.data,
+            "role": form.name.data,
+            "family": form.family.data,
+            "is_admin": str(bool(form.is_admin.data)),
+        }
+        new_password = (form.password.data or "").strip()
+        if new_password:
+            payload["password"] = new_password
         sheets_service.update_user(
             row_number,
-            {
-                "username": form.username.data,
-                "email": form.email.data,
-                "role": form.name.data,
-                "family": form.family.data,
-                "is_admin": str(bool(form.is_admin.data)),
-                "password": form.password.data,
-            },
+            payload,
         )
         flash("Пользователь обновлен", "success")
         return redirect(url_for("admin.users_list"))
@@ -103,7 +106,7 @@ def users_edit(row_number):
         form=form,
         mode="edit",
         row_number=row_number,
-        old_password=str(user.get("password") or "").strip(),
+        old_password=str(user.get("password_plain") or user.get("password") or "").strip(),
     )
 
 
