@@ -472,11 +472,18 @@ def create_app():
     @app.route("/api/preview", methods=["POST"])
     @csrf.exempt
     def preview_post():
-        current_username, role = _resolve_user()
-        if not current_username:
-            return jsonify({"ok": False, "error": "Требуется авторизация"}), 401
-        text = build_post_text_payload(request.get_json() or {}, role)
-        return jsonify({"ok": True, "preview_text": text, "length": len(text)}), 200
+        try:
+            current_username, role = _resolve_user()
+            if not current_username:
+                return jsonify({"ok": False, "error": "Требуется авторизация"}), 401
+            payload = request.get_json(silent=True) or {}
+            if not isinstance(payload, dict):
+                return jsonify({"ok": False, "error": "Некорректные данные предпросмотра"}), 400
+            text = build_post_text_payload(payload, role)
+            return jsonify({"ok": True, "preview_text": text, "length": len(text)}), 200
+        except Exception as e:
+            app.logger.exception("POST /api/preview: unhandled error: %s", e)
+            return jsonify({"ok": False, "error": f"Ошибка предпросмотра: {e}"}), 500
 
     @app.route("/api/jobs/<job_id>", methods=["GET"])
     @csrf.exempt

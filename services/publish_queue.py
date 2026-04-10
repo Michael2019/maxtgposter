@@ -1,6 +1,9 @@
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+import json
+import os
+from pathlib import Path
 import threading
 import uuid
 
@@ -9,10 +12,40 @@ _executor = ThreadPoolExecutor(max_workers=4)
 _lock = threading.Lock()
 _jobs = {}
 _history = deque(maxlen=500)
+_history_file = Path(os.environ.get("PUBLISH_HISTORY_FILE", "data/publish_history.json"))
 
 
 def _now_iso():
     return datetime.now(timezone.utc).isoformat()
+
+
+def _persist_history_to_disk():
+    try:
+        _history_file.parent.mkdir(parents=True, exist_ok=True)
+        tmp_file = _history_file.with_suffix(_history_file.suffix + ".tmp")
+        tmp_file.write_text(json.dumps(list(_history), ensure_ascii=False), encoding="utf-8")
+        tmp_file.replace(_history_file)
+    except Exception:
+        # История в памяти продолжит работать, даже если запись на диск недоступна.
+        pass
+
+
+def _load_history_from_disk():
+    if not _history_file.exists():
+        return
+    try:
+        raw = _history_file.read_text(encoding="utf-8").strip()
+        if not raw:
+            return
+        data = json.loads(raw)
+        if isinstance(data, list):
+            _history.clear()
+            for item in data[: _history.maxlen]:
+                if isinstance(item, dict):
+                    _history.append(item)
+    except Exception:
+        # Битый файл не должен ломать запуск приложения.
+        return
 
 
 def create_job(payload, user):
@@ -79,6 +112,7 @@ def list_history_between(start_dt=None, end_dt=None, limit=500):
 def _append_history(entry):
     with _lock:
         _history.appendleft(entry)
+        _persist_history_to_disk()
 
 
 def run_job_async(job_id, fn):
@@ -123,3 +157,6 @@ def run_job_async(job_id, fn):
             )
 
     _executor.submit(_runner)
+
+
+_load_history_from_disk()
