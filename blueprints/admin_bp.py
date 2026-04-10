@@ -34,6 +34,14 @@ def dashboard():
 @admin_required
 def users_list():
     users = sheets_service.get_users()
+    users = sorted(
+        users,
+        key=lambda x: (
+            str(x.get("family") or "").strip().lower(),
+            str(x.get("role") or "").strip().lower(),
+            str(x.get("username") or "").strip().lower(),
+        ),
+    )
     return render_template("admin/users.html", users=users)
 
 
@@ -357,7 +365,23 @@ def _parse_history_dates(args):
 
 def _build_posts_report_rows(items):
     users = sheets_service.get_users()
+    channels = [*sheets_service.get_main_channels(), *sheets_service.get_camp_channels()]
     users_by_username = {str(u.get("username", "")).strip(): u for u in users}
+    channel_labels = {}
+    for channel in channels:
+        label = str(channel.get("label") or channel.get("name") or "").strip()
+        if not label:
+            continue
+        for key in (
+            channel.get("name"),
+            channel.get("telegram_chat_id"),
+            channel.get("telegram_id"),
+            channel.get("max_chat_id"),
+            channel.get("max_id"),
+        ):
+            normalized = str(key or "").strip()
+            if normalized and normalized not in channel_labels:
+                channel_labels[normalized] = label
     report_map = {}
 
     for item in items:
@@ -370,13 +394,30 @@ def _build_posts_report_rows(items):
         if not family and not name:
             name = username or "—"
         key = (family, name)
-        report_map[key] = report_map.get(key, 0) + 1
+        row_data = report_map.setdefault(key, {"posts_count": 0, "channel_counts": {}})
+        row_data["posts_count"] += 1
+
+        channel_key = str(item.get("channel") or "").strip()
+        if channel_key:
+            channel_label = channel_labels.get(channel_key, channel_key)
+            row_data["channel_counts"][channel_label] = row_data["channel_counts"].get(channel_label, 0) + 1
 
     report_rows = [
-        {"family": family, "name": name, "posts_count": count}
-        for (family, name), count in sorted(
+        {
+            "family": family,
+            "name": name,
+            "posts_count": data["posts_count"],
+            "posts_by_channels": ", ".join(
+                f"{cnt} {label}"
+                for label, cnt in sorted(
+                    data["channel_counts"].items(),
+                    key=lambda x: (-x[1], x[0].lower()),
+                )
+            ),
+        }
+        for (family, name), data in sorted(
             report_map.items(),
-            key=lambda x: (-x[1], (x[0][0] or "").lower(), (x[0][1] or "").lower()),
+            key=lambda x: (-x[1]["posts_count"], (x[0][0] or "").lower(), (x[0][1] or "").lower()),
         )
     ]
     return report_rows

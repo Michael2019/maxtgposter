@@ -91,6 +91,7 @@ def run_job_async(job_id, fn):
             with _lock:
                 created_at = _jobs.get(job_id, {}).get("created_at")
                 user = _jobs.get(job_id, {}).get("user")
+                payload = _jobs.get(job_id, {}).get("payload") or {}
             _append_history(
                 {
                     "id": job_id,
@@ -98,6 +99,7 @@ def run_job_async(job_id, fn):
                     "finished_at": finished_at,
                     "status": "done",
                     "user": user,
+                    "channel": payload.get("channel", ""),
                     "summary": result,
                 }
             )
@@ -107,6 +109,7 @@ def run_job_async(job_id, fn):
             with _lock:
                 created_at = _jobs.get(job_id, {}).get("created_at")
                 user = _jobs.get(job_id, {}).get("user")
+                payload = _jobs.get(job_id, {}).get("payload") or {}
             _append_history(
                 {
                     "id": job_id,
@@ -114,6 +117,7 @@ def run_job_async(job_id, fn):
                     "finished_at": finished_at,
                     "status": "failed",
                     "user": user,
+                    "channel": payload.get("channel", ""),
                     "summary": {"error": str(exc)},
                 }
             )

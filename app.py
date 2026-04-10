@@ -369,6 +369,7 @@ def create_app():
             time_val = request.form.get('time', '')
             telegram_chat_id = request.form.get('chat_id', '')
             max_chat_id = request.form.get('max_chat_id', '')
+            channel = request.form.get("channel", "").strip()
             uploaded_files = request.files.getlist('media_files')
             form_type = request.form.get('form_type', 'lessons')
             app.logger.info(
@@ -422,6 +423,7 @@ def create_app():
             payload = {
                 "telegram_chat_id": telegram_chat_id,
                 "max_chat_id": max_chat_id,
+                "channel": channel or telegram_chat_id or max_chat_id,
                 "text": final_text,
                 "files_data": files_data,
             }

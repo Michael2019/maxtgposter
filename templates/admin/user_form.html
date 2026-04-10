@@ -7,18 +7,45 @@
       <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('admin.dashboard') }}">← К админке</a>
       <h1 class="h4 mb-0">{{ "Новый пользователь" if mode == "create" else "Редактирование пользователя" }}</h1>
     </div>
-    <form method="post" novalidate>
+    <form method="post" novalidate autocomplete="off">
       {{ form.hidden_tag() }}
       <div class="row g-3">
-        <div class="col-md-6">{{ form.username.label(class="form-label") }}{{ form.username(class="form-control") }}</div>
-        <div class="col-md-6">{{ form.email.label(class="form-label") }}{{ form.email(class="form-control") }}</div>
+        <div class="col-md-6">{{ form.username.label(class="form-label") }}{{ form.username(class="form-control", autocomplete="new-username", autocapitalize="off", spellcheck="false") }}</div>
+        <div class="col-md-6">{{ form.email.label(class="form-label") }}{{ form.email(class="form-control", autocomplete="off", autocapitalize="off", spellcheck="false") }}</div>
         <div class="col-md-6">{{ form.name.label(class="form-label") }}{{ form.name(class="form-control") }}</div>
         <div class="col-md-6">{{ form.family.label(class="form-label") }}{{ form.family(class="form-control") }}</div>
         <div class="col-md-6 d-flex align-items-center">{{ form.is_admin(class="form-check-input me-2") }}{{ form.is_admin.label(class="form-check-label") }}</div>
-        <div class="col-12">{{ form.password.label(class="form-label") }}{{ form.password(class="form-control") }}</div>
+        <div class="col-12">
+          {{ form.password.label(class="form-label") }}
+          <div class="input-group">
+            {{ form.password(class="form-control", id="userPassword", autocomplete="new-password") }}
+            <button
+              type="button"
+              class="btn btn-outline-secondary"
+              id="toggleUserPassword"
+              aria-label="Показать пароль"
+              aria-pressed="false"
+            >
+              👁
+            </button>
+          </div>
+        </div>
       </div>
       <button class="btn btn-primary mt-3">Сохранить</button>
     </form>
   </div>
 </div>
+<script>
+(() => {
+  const passwordInput = document.getElementById("userPassword");
+  const toggleBtn = document.getElementById("toggleUserPassword");
+  if (!passwordInput || !toggleBtn) return;
+  toggleBtn.addEventListener("click", () => {
+    const shouldShow = passwordInput.type === "password";
+    passwordInput.type = shouldShow ? "text" : "password";
+    toggleBtn.setAttribute("aria-pressed", shouldShow ? "true" : "false");
+    toggleBtn.setAttribute("aria-label", shouldShow ? "Скрыть пароль" : "Показать пароль");
+  });
+})();
+</script>
 {% endblock %}

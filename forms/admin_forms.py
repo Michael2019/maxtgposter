@@ -28,6 +28,7 @@ VALID_TEMPLATE_CATEGORIES = frozenset(
         "ОЛиП",
         "Хакер",
         "Юнити",
+        COMPENSATORY_CATEGORY,
     }
 )
 

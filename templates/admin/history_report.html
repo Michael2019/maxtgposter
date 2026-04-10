@@ -31,7 +31,12 @@
       <tr>
         <td>{{ row.family or "—" }}</td>
         <td>{{ row.name or "—" }}</td>
-        <td>{{ row.posts_count }}</td>
+        <td>
+          {{ row.posts_count }}
+          {% if row.posts_by_channels %}
+            ({{ row.posts_by_channels }})
+          {% endif %}
+        </td>
       </tr>
       {% else %}
       <tr><td colspan="3" class="text-muted">Нет данных за выбранный период</td></tr>
