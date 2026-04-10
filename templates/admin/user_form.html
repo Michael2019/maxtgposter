@@ -15,6 +15,30 @@
         <div class="col-md-6">{{ form.name.label(class="form-label") }}{{ form.name(class="form-control") }}</div>
         <div class="col-md-6">{{ form.family.label(class="form-label") }}{{ form.family(class="form-control") }}</div>
         <div class="col-md-6 d-flex align-items-center">{{ form.is_admin(class="form-check-input me-2") }}{{ form.is_admin.label(class="form-check-label") }}</div>
+        {% if mode == "edit" %}
+        <div class="col-12">
+          <label class="form-label" for="oldPassword">Старый пароль</label>
+          <div class="input-group">
+            <input
+              id="oldPassword"
+              type="password"
+              class="form-control"
+              value="{{ old_password or '' }}"
+              readonly
+              autocomplete="off"
+            >
+            <button
+              type="button"
+              class="btn btn-outline-secondary"
+              id="toggleOldPassword"
+              aria-label="Показать старый пароль"
+              aria-pressed="false"
+            >
+              👁
+            </button>
+          </div>
+        </div>
+        {% endif %}
         <div class="col-12">
           {{ form.password.label(class="form-label") }}
           <div class="input-group">
@@ -39,13 +63,24 @@
 (() => {
   const passwordInput = document.getElementById("userPassword");
   const toggleBtn = document.getElementById("toggleUserPassword");
-  if (!passwordInput || !toggleBtn) return;
-  toggleBtn.addEventListener("click", () => {
-    const shouldShow = passwordInput.type === "password";
-    passwordInput.type = shouldShow ? "text" : "password";
-    toggleBtn.setAttribute("aria-pressed", shouldShow ? "true" : "false");
-    toggleBtn.setAttribute("aria-label", shouldShow ? "Скрыть пароль" : "Показать пароль");
-  });
+  if (passwordInput && toggleBtn) {
+    toggleBtn.addEventListener("click", () => {
+      const shouldShow = passwordInput.type === "password";
+      passwordInput.type = shouldShow ? "text" : "password";
+      toggleBtn.setAttribute("aria-pressed", shouldShow ? "true" : "false");
+      toggleBtn.setAttribute("aria-label", shouldShow ? "Скрыть пароль" : "Показать пароль");
+    });
+  }
+  const oldPasswordInput = document.getElementById("oldPassword");
+  const oldToggleBtn = document.getElementById("toggleOldPassword");
+  if (oldPasswordInput && oldToggleBtn) {
+    oldToggleBtn.addEventListener("click", () => {
+      const shouldShow = oldPasswordInput.type === "password";
+      oldPasswordInput.type = shouldShow ? "text" : "password";
+      oldToggleBtn.setAttribute("aria-pressed", shouldShow ? "true" : "false");
+      oldToggleBtn.setAttribute("aria-label", shouldShow ? "Скрыть старый пароль" : "Показать старый пароль");
+    });
+  }
 })();
 </script>
 {% endblock %}

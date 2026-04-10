@@ -109,38 +109,46 @@ class GoogleSheetsService:
         if not users_csv_url:
             current_app.logger.warning("Sheets: USERS_CSV_URL is missing")
             return []
-        current_app.logger.info("Sheets: reading users from CSV fallback url=%s", users_csv_url)
-        response = requests.get(users_csv_url, timeout=10)
-        response.raise_for_status()
-        decoded = response.content.decode("utf-8")
-        reader = csv.DictReader(StringIO(decoded))
-        current_app.logger.info("Sheets: users CSV headers=%r", reader.fieldnames)
-        rows = []
-        for idx, row in enumerate(reader, start=2):
-            row["row_number"] = idx
-            row["id"] = row.get("id") or str(idx)
-            rows.append(row)
-        current_app.logger.info("Sheets: users CSV rows loaded=%s", len(rows))
-        return rows
+        try:
+            current_app.logger.info("Sheets: reading users from CSV fallback url=%s", users_csv_url)
+            response = requests.get(users_csv_url, timeout=10)
+            response.raise_for_status()
+            decoded = response.content.decode("utf-8")
+            reader = csv.DictReader(StringIO(decoded))
+            current_app.logger.info("Sheets: users CSV headers=%r", reader.fieldnames)
+            rows = []
+            for idx, row in enumerate(reader, start=2):
+                row["row_number"] = idx
+                row["id"] = row.get("id") or str(idx)
+                rows.append(row)
+            current_app.logger.info("Sheets: users CSV rows loaded=%s", len(rows))
+            return rows
+        except Exception as e:
+            current_app.logger.exception("Sheets: users CSV fallback failed: %s", e)
+            return []
 
     def _read_csv_templates_fallback(self):
         sheets_csv_url = current_app.config.get("SHEETS_CSV_URL")
         if not sheets_csv_url:
             current_app.logger.warning("Sheets: SHEETS_CSV_URL is missing")
             return []
-        current_app.logger.info("Sheets: reading templates from CSV fallback url=%s", sheets_csv_url)
-        response = requests.get(sheets_csv_url, timeout=10)
-        response.raise_for_status()
-        decoded = response.content.decode("utf-8")
-        reader = csv.DictReader(StringIO(decoded))
-        current_app.logger.info("Sheets: templates CSV headers=%r", reader.fieldnames)
-        rows = []
-        for idx, row in enumerate(reader, start=2):
-            row["row_number"] = idx
-            row["id"] = row.get("id") or str(idx)
-            rows.append(row)
-        current_app.logger.info("Sheets: templates CSV rows loaded=%s", len(rows))
-        return rows
+        try:
+            current_app.logger.info("Sheets: reading templates from CSV fallback url=%s", sheets_csv_url)
+            response = requests.get(sheets_csv_url, timeout=10)
+            response.raise_for_status()
+            decoded = response.content.decode("utf-8")
+            reader = csv.DictReader(StringIO(decoded))
+            current_app.logger.info("Sheets: templates CSV headers=%r", reader.fieldnames)
+            rows = []
+            for idx, row in enumerate(reader, start=2):
+                row["row_number"] = idx
+                row["id"] = row.get("id") or str(idx)
+                rows.append(row)
+            current_app.logger.info("Sheets: templates CSV rows loaded=%s", len(rows))
+            return rows
+        except Exception as e:
+            current_app.logger.exception("Sheets: templates CSV fallback failed: %s", e)
+            return []
 
     def _normalize_records(self, records):
         for idx, row in enumerate(records, start=2):
@@ -168,8 +176,12 @@ class GoogleSheetsService:
         sheet = self._get_sheet(current_app.config.get("GOOGLE_TEMPLATES_SHEET"))
         if not sheet:
             return self._read_csv_templates_fallback()
-        records = sheet.get_all_records()
-        return self._normalize_records(records)
+        try:
+            records = sheet.get_all_records()
+            return self._normalize_records(records)
+        except Exception as e:
+            current_app.logger.exception("Sheets: templates worksheet read failed: %s", e)
+            return self._read_csv_templates_fallback()
 
     def _get_channels(self, sheet_name, cache_key, defaults):
         @cache.cached(timeout=SHEETS_CACHE_TTL_SEC, key_prefix=cache_key)

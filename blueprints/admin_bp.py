@@ -65,7 +65,7 @@ def users_create():
         return redirect(url_for("admin.users_list"))
     if form.errors:
         flash(str(form.errors), "danger")
-    return render_template("admin/user_form.html", form=form, mode="create")
+    return render_template("admin/user_form.html", form=form, mode="create", old_password="")
 
 
 @admin_bp.route("/users/<int:row_number>/edit", methods=["GET", "POST"])
@@ -98,7 +98,13 @@ def users_edit(row_number):
         return redirect(url_for("admin.users_list"))
     if form.errors:
         flash(str(form.errors), "danger")
-    return render_template("admin/user_form.html", form=form, mode="edit", row_number=row_number)
+    return render_template(
+        "admin/user_form.html",
+        form=form,
+        mode="edit",
+        row_number=row_number,
+        old_password=str(user.get("password") or "").strip(),
+    )
 
 
 @admin_bp.route("/users/<int:row_number>/delete", methods=["POST"])

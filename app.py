@@ -500,7 +500,11 @@ def create_app():
     @app.errorhandler(500)
     def internal_error(error):
         app.logger.exception("Unhandled server error: %s", error)
-        return jsonify({"ok": False, "error": "Внутренняя ошибка сервера"}), 500
+        wants_json = request.path.startswith("/api/") or request.is_json or request.headers.get("Accept", "").startswith("application/json")
+        if wants_json:
+            return jsonify({"ok": False, "error": "Внутренняя ошибка сервера"}), 500
+        flash("Внутренняя ошибка сервера", "danger")
+        return redirect(url_for("admin.dashboard"))
 
     return app
 
