@@ -130,6 +130,35 @@ def build_post_text_payload(form_data, role):
     return trim_text_to_limit(full_text, signature, 4096)
 
 
+def _rewind_multipart_files(files):
+    """Перед повторной отправкой в Telegram вернуть указатели в BytesIO на начало.
+
+    Иначе после таймаута/обрыва часть потоков уже прочитана — retry шлёт пустые файлы
+    и API отвечает «file must be non-empty».
+    """
+    if not files:
+        return
+
+    def rewind_obj(fobj):
+        if fobj is not None and hasattr(fobj, "seek"):
+            try:
+                fobj.seek(0)
+            except (OSError, ValueError):
+                pass
+
+    if isinstance(files, dict):
+        for val in files.values():
+            if isinstance(val, (list, tuple)) and len(val) >= 2:
+                rewind_obj(val[1])
+    elif isinstance(files, (list, tuple)):
+        for item in files:
+            if not isinstance(item, (list, tuple)) or len(item) < 2:
+                continue
+            inner = item[1]
+            if isinstance(inner, (list, tuple)) and len(inner) >= 2:
+                rewind_obj(inner[1])
+
+
 # ============= ОТПРАВКА В TELEGRAM =============
 def send_to_telegram(chat_id, text, files_data):
     logger = logging.getLogger("app")
@@ -154,11 +183,13 @@ def send_to_telegram(chat_id, text, files_data):
                 last_error = e
                 logger.warning("Telegram timeout endpoint=%s attempt=%s", endpoint, attempt)
                 if attempt < retries:
+                    _rewind_multipart_files(files)
                     time.sleep(1.2 * attempt)
             except requests.RequestException as e:
                 last_error = e
                 logger.warning("Telegram request exception endpoint=%s attempt=%s error=%s", endpoint, attempt, e)
                 if attempt < retries:
+                    _rewind_multipart_files(files)
                     time.sleep(1.2 * attempt)
         if isinstance(last_error, requests.Timeout):
             raise requests.Timeout()
@@ -237,12 +268,13 @@ def send_to_telegram(chat_id, text, files_data):
                 payload = {"chat_id": chat_id, "caption": caption_text or "", "parse_mode": "HTML"}
                 files_for_tg = {"photo" if endpoint == "sendPhoto" else "video": (fname, stream, mime)}
                 print(f"📤 Telegram: отправка single media ({endpoint})...")
-                response = tg_post(endpoint, data=payload, files=files_for_tg, timeout=(15, 45), retries=2)
+                response = tg_post(endpoint, data=payload, files=files_for_tg, timeout=(30, 120), retries=2)
             else:
                 payload = {'chat_id': chat_id, 'media': json.dumps(media[:10])}
                 files_for_tg = [(name, (fname, stream, mime)) for name, (fname, stream, mime) in attachments.items()]
                 print("📤 Telegram: отправка media group...")
-                response = tg_post("sendMediaGroup", data=payload, files=files_for_tg, timeout=(15, 45), retries=2)
+                # Большие фото с телефона: даём больше времени на запись тела запроса (write timeout).
+                response = tg_post("sendMediaGroup", data=payload, files=files_for_tg, timeout=(45, 180), retries=2)
             print(f" Telegram response: {response.status_code} - {response.text[:200]}")
             if response.status_code != 200:
                 return {"ok": False, "error": response.text}
