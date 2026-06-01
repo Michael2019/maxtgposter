@@ -9,9 +9,18 @@ from flask import current_app
 from gspread.exceptions import WorksheetNotFound
 
 from extensions import cache
+from services.cache_helpers import notify_template_changed
 
 
 SHEETS_CACHE_TTL_SEC = 1800
+
+# Значения payload → возможные имена колонок в таблице
+_PAYLOAD_HEADER_ALIASES = {
+    "telegram_chat_id": ("telegram_chat_id", "telegram_id"),
+    "telegram_id": ("telegram_chat_id", "telegram_id"),
+    "max_chat_id": ("max_chat_id", "max_id"),
+    "max_id": ("max_chat_id", "max_id"),
+}
 
 DEFAULT_MAIN_CHANNELS = [
     {"name": "test", "label": "Тестовый канал", "emoji": "🔵", "telegram_chat_id": "-1003547986217", "max_chat_id": "-72270757000562"},
@@ -39,7 +48,7 @@ DEFAULT_CAMP_CHANNELS = [
     {"name": "test", "label": "Тестовый канал", "emoji": "🔵", "telegram_chat_id": "-1003547986217", "max_chat_id": "-72270757000562"},
     {"name": "SOLN", "label": "СОЛН", "emoji": "☀️", "telegram_chat_id": "-1002265440531", "max_chat_id": "-72220373405126"},
     {"name": "GRAZH", "label": "ГРАЖ", "emoji": "🚗", "telegram_chat_id": "-1002230741730", "max_chat_id": "-72220454997446"},
-    {"name": "KRYL", "label": "КРЫЛ", "emoji": "🦅", "telegram_chat_id": "-1002124376897", "max_chat_id": "-72220532395462"},
+    {"name": "DYB", "label": "ДЫБ", "emoji": "🦅", "telegram_chat_id": "-1003694491475", "max_chat_id": "-75417084153286"},
     {"name": "BER", "label": "БЕР", "emoji": "🏦", "telegram_chat_id": "-1002132174810", "max_chat_id": "-72220627029446"},
     {"name": "MAR", "label": "МАР", "emoji": "🔴", "telegram_chat_id": "-1001974376961", "max_chat_id": "-72220691713478"},
     {"name": "KOS", "label": "КОС", "emoji": "🚀", "telegram_chat_id": "-1001707280364", "max_chat_id": "-72220777958854"},
@@ -118,9 +127,10 @@ class GoogleSheetsService:
             current_app.logger.info("Sheets: users CSV headers=%r", reader.fieldnames)
             rows = []
             for idx, row in enumerate(reader, start=2):
-                row["row_number"] = idx
-                row["id"] = row.get("id") or str(idx)
-                rows.append(row)
+                clean = {str(k).strip(): v for k, v in row.items()}
+                clean["row_number"] = idx
+                clean["id"] = clean.get("id") or str(idx)
+                rows.append(clean)
             current_app.logger.info("Sheets: users CSV rows loaded=%s", len(rows))
             return rows
         except Exception as e:
@@ -141,9 +151,10 @@ class GoogleSheetsService:
             current_app.logger.info("Sheets: templates CSV headers=%r", reader.fieldnames)
             rows = []
             for idx, row in enumerate(reader, start=2):
-                row["row_number"] = idx
-                row["id"] = row.get("id") or str(idx)
-                rows.append(row)
+                clean = {str(k).strip(): v for k, v in row.items()}
+                clean["row_number"] = idx
+                clean["id"] = clean.get("id") or str(idx)
+                rows.append(clean)
             current_app.logger.info("Sheets: templates CSV rows loaded=%s", len(rows))
             return rows
         except Exception as e:
@@ -151,49 +162,66 @@ class GoogleSheetsService:
             return []
 
     def _normalize_records(self, records):
+        normalized = []
         for idx, row in enumerate(records, start=2):
-            row["row_number"] = idx
-            row["id"] = row.get("id") or str(idx - 1)
-        return records
+            clean = {str(k).strip(): v for k, v in row.items()}
+            clean["row_number"] = idx
+            clean["id"] = clean.get("id") or str(idx - 1)
+            normalized.append(clean)
+        return normalized
 
-    @cache.cached(timeout=SHEETS_CACHE_TTL_SEC, key_prefix="users_records")
     def get_users(self):
+        cache_key = "users_records"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
         sheet_name = current_app.config.get("GOOGLE_USERS_SHEET")
         sheet = self._get_sheet(sheet_name)
         if not sheet:
             current_app.logger.warning("Sheets: users sheet unavailable (%s); using fallback", sheet_name)
-            return self._read_csv_users_fallback()
-        current_app.logger.info("Sheets: reading users from worksheet=%s", sheet_name)
-        records = sheet.get_all_records()
-        current_app.logger.info("Sheets: users rows from worksheet=%s", len(records))
-        records = self._normalize_records(records)
-        if records:
-            current_app.logger.info("Sheets: users columns in first row=%r", list(records[0].keys()))
+            records = self._read_csv_users_fallback()
+        else:
+            current_app.logger.info("Sheets: reading users from worksheet=%s", sheet_name)
+            records = sheet.get_all_records()
+            current_app.logger.info("Sheets: users rows from worksheet=%s", len(records))
+            records = self._normalize_records(records)
+            if records:
+                current_app.logger.info("Sheets: users columns in first row=%r", list(records[0].keys()))
+        self._cache_set(cache_key, records)
         return records
 
-    @cache.cached(timeout=SHEETS_CACHE_TTL_SEC, key_prefix="template_records")
     def get_templates(self):
+        cache_key = "template_records"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
         sheet = self._get_sheet(current_app.config.get("GOOGLE_TEMPLATES_SHEET"))
         if not sheet:
-            return self._read_csv_templates_fallback()
-        try:
-            records = sheet.get_all_records()
-            return self._normalize_records(records)
-        except Exception as e:
-            current_app.logger.exception("Sheets: templates worksheet read failed: %s", e)
-            return self._read_csv_templates_fallback()
+            records = self._read_csv_templates_fallback()
+        else:
+            try:
+                records = self._normalize_records(sheet.get_all_records())
+            except Exception as e:
+                current_app.logger.exception("Sheets: templates worksheet read failed: %s", e)
+                records = self._read_csv_templates_fallback()
+        self._cache_set(cache_key, records)
+        return records
 
     def _get_channels(self, sheet_name, cache_key, defaults):
-        @cache.cached(timeout=SHEETS_CACHE_TTL_SEC, key_prefix=cache_key)
-        def _loader():
-            sheet = self._get_sheet(sheet_name)
-            if not sheet:
-                return self._normalize_records([dict(x) for x in defaults])
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
+        sheet = self._get_sheet(sheet_name)
+        if not sheet:
+            records = self._normalize_records([dict(x) for x in defaults])
+        else:
             records = sheet.get_all_records()
             if not records:
-                return self._normalize_records([dict(x) for x in defaults])
-            return self._normalize_records(records)
-        return _loader()
+                records = self._normalize_records([dict(x) for x in defaults])
+            else:
+                records = self._normalize_records(records)
+        self._cache_set(cache_key, records)
+        return records
 
     def get_main_channels(self):
         return self._get_channels(current_app.config.get("GOOGLE_CHANNELS_SHEET"), "channels_records_main", DEFAULT_MAIN_CHANNELS)
@@ -208,7 +236,28 @@ class GoogleSheetsService:
         return sheet
 
     def _worksheet_headers(self, sheet):
-        return sheet.row_values(1)
+        return [str(h or "").strip() for h in sheet.row_values(1)]
+
+    def _payload_value(self, header, payload):
+        if header in payload:
+            return payload.get(header, "")
+        for alias in _PAYLOAD_HEADER_ALIASES.get(header, ()):
+            if alias in payload:
+                return payload.get(alias, "")
+        return None
+
+    def _cache_get(self, key):
+        return cache.get(key)
+
+    def _cache_set(self, key, value):
+        cache.set(key, value, timeout=SHEETS_CACHE_TTL_SEC)
+
+    def _cache_delete(self, key):
+        cache.delete(key)
+
+    def _invalidate_templates_cache(self):
+        self._cache_delete("template_records")
+        notify_template_changed()
 
     def _column_letter(self, col_number):
         result = ""
@@ -217,81 +266,89 @@ class GoogleSheetsService:
             result = chr(65 + remainder) + result
         return result
 
+    def _row_from_payload(self, headers, payload):
+        row = []
+        for header in headers:
+            value = self._payload_value(header, payload)
+            row.append("" if value is None else value)
+        return row
+
+    def _apply_payload_to_row(self, headers, existing, payload):
+        for idx, header in enumerate(headers):
+            value = self._payload_value(header, payload)
+            if value is not None:
+                existing[idx] = value
+        return existing
+
     def create_user(self, payload):
         sheet = self._ensure_write_sheet(current_app.config.get("GOOGLE_USERS_SHEET"))
         headers = self._worksheet_headers(sheet)
-        row = [payload.get(header, "") for header in headers]
+        row = self._row_from_payload(headers, payload)
         if "password_hash" in headers and payload.get("password"):
             row[headers.index("password_hash")] = hashlib.sha256(payload["password"].encode()).hexdigest()
         sheet.append_row(row, value_input_option="USER_ENTERED")
-        cache.delete("users_records")
+        self._cache_delete("users_records")
 
     def update_user(self, row_number, payload):
         sheet = self._ensure_write_sheet(current_app.config.get("GOOGLE_USERS_SHEET"))
         headers = self._worksheet_headers(sheet)
         existing = sheet.row_values(row_number)
         existing = existing + [""] * max(0, len(headers) - len(existing))
-        for idx, header in enumerate(headers):
-            if header in payload:
-                existing[idx] = payload.get(header, "")
+        existing = self._apply_payload_to_row(headers, existing, payload)
         if "password_hash" in headers and payload.get("password"):
             existing[headers.index("password_hash")] = hashlib.sha256(payload["password"].encode()).hexdigest()
         end_col = self._column_letter(len(headers))
         sheet.update(f"A{row_number}:{end_col}{row_number}", [existing[: len(headers)]], value_input_option="USER_ENTERED")
-        cache.delete("users_records")
+        self._cache_delete("users_records")
 
     def delete_user(self, row_number):
         sheet = self._ensure_write_sheet(current_app.config.get("GOOGLE_USERS_SHEET"))
         sheet.delete_rows(row_number)
-        cache.delete("users_records")
+        self._cache_delete("users_records")
 
     def create_template(self, payload):
         sheet = self._ensure_write_sheet(current_app.config.get("GOOGLE_TEMPLATES_SHEET"))
         headers = self._worksheet_headers(sheet)
-        row = [payload.get(header, "") for header in headers]
+        row = self._row_from_payload(headers, payload)
         sheet.append_row(row, value_input_option="USER_ENTERED")
-        cache.delete("template_records")
+        self._invalidate_templates_cache()
 
     def update_template(self, row_number, payload):
         sheet = self._ensure_write_sheet(current_app.config.get("GOOGLE_TEMPLATES_SHEET"))
         headers = self._worksheet_headers(sheet)
         existing = sheet.row_values(row_number)
         existing = existing + [""] * max(0, len(headers) - len(existing))
-        for idx, header in enumerate(headers):
-            if header in payload:
-                existing[idx] = payload.get(header, "")
+        existing = self._apply_payload_to_row(headers, existing, payload)
         end_col = self._column_letter(len(headers))
         sheet.update(f"A{row_number}:{end_col}{row_number}", [existing[: len(headers)]], value_input_option="USER_ENTERED")
-        cache.delete("template_records")
+        self._invalidate_templates_cache()
 
     def delete_template(self, row_number):
         sheet = self._ensure_write_sheet(current_app.config.get("GOOGLE_TEMPLATES_SHEET"))
         sheet.delete_rows(row_number)
-        cache.delete("template_records")
+        self._invalidate_templates_cache()
 
     def _create_channel(self, sheet_name, payload, cache_key):
         sheet = self._ensure_write_sheet(sheet_name)
         headers = self._worksheet_headers(sheet)
-        row = [payload.get(header, "") for header in headers]
+        row = self._row_from_payload(headers, payload)
         sheet.append_row(row, value_input_option="USER_ENTERED")
-        cache.delete(cache_key)
+        self._cache_delete(cache_key)
 
     def _update_channel(self, sheet_name, row_number, payload, cache_key):
         sheet = self._ensure_write_sheet(sheet_name)
         headers = self._worksheet_headers(sheet)
         existing = sheet.row_values(row_number)
         existing = existing + [""] * max(0, len(headers) - len(existing))
-        for idx, header in enumerate(headers):
-            if header in payload:
-                existing[idx] = payload.get(header, "")
+        existing = self._apply_payload_to_row(headers, existing, payload)
         end_col = self._column_letter(len(headers))
         sheet.update(f"A{row_number}:{end_col}{row_number}", [existing[: len(headers)]], value_input_option="USER_ENTERED")
-        cache.delete(cache_key)
+        self._cache_delete(cache_key)
 
     def _delete_channel(self, sheet_name, row_number, cache_key):
         sheet = self._ensure_write_sheet(sheet_name)
         sheet.delete_rows(row_number)
-        cache.delete(cache_key)
+        self._cache_delete(cache_key)
 
     def create_main_channel(self, payload):
         self._create_channel(current_app.config.get("GOOGLE_CHANNELS_SHEET"), payload, "channels_records_main")

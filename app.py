@@ -36,10 +36,39 @@ _TEMPLATE_CSV_CACHE = {"rows": None, "fetched_at": 0.0}
 _TEMPLATE_CSV_TTL_SEC = float(os.environ.get("TEMPLATE_CSV_TTL_SEC", "1800"))
 
 
+def _find_template_text(rows, category, module, lesson):
+    cat = str(category).strip()
+    mod = str(module).strip()
+    les = str(lesson).strip()
+    for row in rows:
+        if (
+            str(row.get("category", "")).strip() == cat
+            and str(row.get("module", "")).strip() == mod
+            and str(row.get("lesson", "")).strip() == les
+        ):
+            text = (row.get("post_text") or "").strip()
+            if text:
+                return text
+    return None
+
+
 def get_post_template(category, module, lesson):
     if str(category).strip() == COMPENSATORY_CATEGORY:
         return COMPENSATORY_CATEGORY
     fallback = f"{category}, модуль {module}, занятие {lesson}"
+    try:
+        from flask import has_app_context
+
+        if has_app_context():
+            from services.sheets import sheets_service
+
+            rows = sheets_service.get_templates()
+            found = _find_template_text(rows, category, module, lesson)
+            if found:
+                return found
+    except Exception as e:
+        print(f"Ошибка шаблона (Sheets): {e}")
+
     try:
         if not SHEETS_CSV_URL:
             return fallback
@@ -53,17 +82,16 @@ def get_post_template(category, module, lesson):
             rows = list(reader)
             _TEMPLATE_CSV_CACHE["rows"] = rows
             _TEMPLATE_CSV_CACHE["fetched_at"] = now
-        for row in rows:
-            if (
-                row.get("category", "").strip() == str(category)
-                and row.get("module", "").strip() == str(module)
-                and row.get("lesson", "").strip() == str(lesson)
-            ):
-                return (row.get("post_text") or "").strip() or fallback
-        return fallback
+        found = _find_template_text(rows, category, module, lesson)
+        return found if found else fallback
     except Exception as e:
-        print(f"Ошибка шаблона: {e}")
+        print(f"Ошибка шаблона (CSV): {e}")
         return fallback
+
+
+def clear_template_csv_cache():
+    _TEMPLATE_CSV_CACHE["rows"] = None
+    _TEMPLATE_CSV_CACHE["fetched_at"] = 0.0
 
 def trim_text_to_limit(main_text, signature, max_length):
     full = main_text + signature
@@ -524,6 +552,10 @@ def create_app():
         if not job:
             return jsonify({"ok": False, "error": "Job not found"}), 404
         return jsonify({"ok": True, "job": job}), 200
+
+    from services.cache_helpers import register_template_change_hook
+
+    register_template_change_hook(clear_template_csv_cache)
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(main_bp)

@@ -10,6 +10,28 @@ from services.sheets import sheets_service
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 
 
+def _flash_form_errors(form):
+    for field, errors in form.errors.items():
+        for err in errors:
+            flash(f"{field}: {err}", "danger")
+
+
+def _channel_form_data(item):
+    data = dict(item)
+    if not data.get("telegram_chat_id") and data.get("telegram_id"):
+        data["telegram_chat_id"] = data["telegram_id"]
+    if not data.get("max_chat_id") and data.get("max_id"):
+        data["max_chat_id"] = data["max_id"]
+    return data
+
+
+def _sheets_write_error_message(exc):
+    msg = str(exc)
+    if "not configured" in msg.lower():
+        return "Запись в Google Sheets недоступна: проверьте GOOGLE_SPREADSHEET_ID и ключ сервисного аккаунта."
+    return f"Ошибка сохранения: {msg}"
+
+
 @admin_bp.route("/")
 @web_login_required
 @admin_required
@@ -51,20 +73,24 @@ def users_list():
 def users_create():
     form = UserForm()
     if form.validate_on_submit():
-        sheets_service.create_user(
-            {
-                "username": form.username.data,
-                "email": form.email.data,
-                "role": form.name.data,
-                "family": form.family.data,
-                "is_admin": str(bool(form.is_admin.data)),
-                "password": form.password.data,
-            }
-        )
+        try:
+            sheets_service.create_user(
+                {
+                    "username": form.username.data,
+                    "email": form.email.data,
+                    "role": form.name.data,
+                    "family": form.family.data,
+                    "is_admin": str(bool(form.is_admin.data)),
+                    "password": form.password.data,
+                }
+            )
+        except RuntimeError as exc:
+            flash(_sheets_write_error_message(exc), "danger")
+            return render_template("admin/user_form.html", form=form, mode="create", old_password="")
         flash("Пользователь создан", "success")
         return redirect(url_for("admin.users_list"))
     if form.errors:
-        flash(str(form.errors), "danger")
+        _flash_form_errors(form)
     return render_template("admin/user_form.html", form=form, mode="create", old_password="")
 
 
@@ -93,14 +119,21 @@ def users_edit(row_number):
         new_password = (form.password.data or "").strip()
         if new_password:
             payload["password"] = new_password
-        sheets_service.update_user(
-            row_number,
-            payload,
-        )
+        try:
+            sheets_service.update_user(row_number, payload)
+        except RuntimeError as exc:
+            flash(_sheets_write_error_message(exc), "danger")
+            return render_template(
+                "admin/user_form.html",
+                form=form,
+                mode="edit",
+                row_number=row_number,
+                old_password=str(user.get("password_plain") or user.get("password") or "").strip(),
+            )
         flash("Пользователь обновлен", "success")
         return redirect(url_for("admin.users_list"))
     if form.errors:
-        flash(str(form.errors), "danger")
+        _flash_form_errors(form)
     return render_template(
         "admin/user_form.html",
         form=form,
@@ -114,7 +147,11 @@ def users_edit(row_number):
 @web_login_required
 @admin_required
 def users_delete(row_number):
-    sheets_service.delete_user(row_number)
+    try:
+        sheets_service.delete_user(row_number)
+    except RuntimeError as exc:
+        flash(_sheets_write_error_message(exc), "danger")
+        return redirect(url_for("admin.users_list"))
     flash("Пользователь удален", "info")
     return redirect(url_for("admin.users_list"))
 
@@ -156,17 +193,30 @@ def templates_create():
                 initial_module=module,
                 initial_lesson=lesson,
             )
-        sheets_service.create_template(
-            {
-                "name": form.name.data,
-                "category": category,
-                "module": module,
-                "lesson": lesson,
-                "post_text": form.post_text.data,
-            }
-        )
+        try:
+            sheets_service.create_template(
+                {
+                    "name": form.name.data,
+                    "category": category,
+                    "module": module,
+                    "lesson": lesson,
+                    "post_text": form.post_text.data,
+                }
+            )
+        except RuntimeError as exc:
+            flash(_sheets_write_error_message(exc), "danger")
+            return render_template(
+                "admin/template_form.html",
+                form=form,
+                mode="create",
+                initial_category=category,
+                initial_module=module,
+                initial_lesson=lesson,
+            )
         flash("Шаблон создан", "success")
         return redirect(url_for("admin.templates_list"))
+    if form.errors:
+        _flash_form_errors(form)
     return render_template("admin/template_form.html", form=form, mode="create")
 
 
@@ -196,18 +246,32 @@ def templates_edit(row_number):
                 initial_module=module,
                 initial_lesson=lesson,
             )
-        sheets_service.update_template(
-            row_number,
-            {
-                "name": form.name.data,
-                "category": category,
-                "module": module,
-                "lesson": lesson,
-                "post_text": form.post_text.data,
-            },
-        )
+        try:
+            sheets_service.update_template(
+                row_number,
+                {
+                    "name": form.name.data,
+                    "category": category,
+                    "module": module,
+                    "lesson": lesson,
+                    "post_text": form.post_text.data,
+                },
+            )
+        except RuntimeError as exc:
+            flash(_sheets_write_error_message(exc), "danger")
+            return render_template(
+                "admin/template_form.html",
+                form=form,
+                mode="edit",
+                row_number=row_number,
+                initial_category=category,
+                initial_module=module,
+                initial_lesson=lesson,
+            )
         flash("Шаблон обновлен", "success")
         return redirect(url_for("admin.templates_list"))
+    if form.errors:
+        _flash_form_errors(form)
     return render_template(
         "admin/template_form.html",
         form=form,
@@ -223,7 +287,11 @@ def templates_edit(row_number):
 @web_login_required
 @admin_required
 def templates_delete(row_number):
-    sheets_service.delete_template(row_number)
+    try:
+        sheets_service.delete_template(row_number)
+    except RuntimeError as exc:
+        flash(_sheets_write_error_message(exc), "danger")
+        return redirect(url_for("admin.templates_list"))
     flash("Шаблон удален", "info")
     return redirect(url_for("admin.templates_list"))
 
@@ -255,9 +323,15 @@ def channels_list():
 def channels_create():
     form = ChannelForm()
     if form.validate_on_submit():
-        sheets_service.create_main_channel(_channel_payload(form))
+        try:
+            sheets_service.create_main_channel(_channel_payload(form))
+        except RuntimeError as exc:
+            flash(_sheets_write_error_message(exc), "danger")
+            return render_template("admin/channel_form.html", form=form, mode="create", endpoint="admin.channels_create")
         flash("Канал добавлен", "success")
         return redirect(url_for("admin.channels_list"))
+    if form.errors:
+        _flash_form_errors(form)
     return render_template("admin/channel_form.html", form=form, mode="create", endpoint="admin.channels_create")
 
 
@@ -270,11 +344,23 @@ def channels_edit(row_number):
     if not item:
         flash("Канал не найден", "danger")
         return redirect(url_for("admin.channels_list"))
-    form = ChannelForm(data=item)
+    form = ChannelForm(data=_channel_form_data(item))
     if form.validate_on_submit():
-        sheets_service.update_main_channel(row_number, _channel_payload(form))
+        try:
+            sheets_service.update_main_channel(row_number, _channel_payload(form))
+        except RuntimeError as exc:
+            flash(_sheets_write_error_message(exc), "danger")
+            return render_template(
+                "admin/channel_form.html",
+                form=form,
+                mode="edit",
+                endpoint="admin.channels_edit",
+                row_number=row_number,
+            )
         flash("Канал обновлен", "success")
         return redirect(url_for("admin.channels_list"))
+    if form.errors:
+        _flash_form_errors(form)
     return render_template("admin/channel_form.html", form=form, mode="edit", endpoint="admin.channels_edit", row_number=row_number)
 
 
@@ -282,7 +368,11 @@ def channels_edit(row_number):
 @web_login_required
 @admin_required
 def channels_delete(row_number):
-    sheets_service.delete_main_channel(row_number)
+    try:
+        sheets_service.delete_main_channel(row_number)
+    except RuntimeError as exc:
+        flash(_sheets_write_error_message(exc), "danger")
+        return redirect(url_for("admin.channels_list"))
     flash("Канал удален", "info")
     return redirect(url_for("admin.channels_list"))
 
@@ -300,9 +390,20 @@ def camp_channels_list():
 def camp_channels_create():
     form = ChannelForm()
     if form.validate_on_submit():
-        sheets_service.create_camp_channel(_channel_payload(form))
+        try:
+            sheets_service.create_camp_channel(_channel_payload(form))
+        except RuntimeError as exc:
+            flash(_sheets_write_error_message(exc), "danger")
+            return render_template(
+                "admin/channel_form.html",
+                form=form,
+                mode="create",
+                endpoint="admin.camp_channels_create",
+            )
         flash("Канал КШ добавлен", "success")
         return redirect(url_for("admin.camp_channels_list"))
+    if form.errors:
+        _flash_form_errors(form)
     return render_template("admin/channel_form.html", form=form, mode="create", endpoint="admin.camp_channels_create")
 
 
@@ -315,11 +416,23 @@ def camp_channels_edit(row_number):
     if not item:
         flash("Канал КШ не найден", "danger")
         return redirect(url_for("admin.camp_channels_list"))
-    form = ChannelForm(data=item)
+    form = ChannelForm(data=_channel_form_data(item))
     if form.validate_on_submit():
-        sheets_service.update_camp_channel(row_number, _channel_payload(form))
+        try:
+            sheets_service.update_camp_channel(row_number, _channel_payload(form))
+        except RuntimeError as exc:
+            flash(_sheets_write_error_message(exc), "danger")
+            return render_template(
+                "admin/channel_form.html",
+                form=form,
+                mode="edit",
+                endpoint="admin.camp_channels_edit",
+                row_number=row_number,
+            )
         flash("Канал КШ обновлен", "success")
         return redirect(url_for("admin.camp_channels_list"))
+    if form.errors:
+        _flash_form_errors(form)
     return render_template("admin/channel_form.html", form=form, mode="edit", endpoint="admin.camp_channels_edit", row_number=row_number)
 
 
@@ -327,7 +440,11 @@ def camp_channels_edit(row_number):
 @web_login_required
 @admin_required
 def camp_channels_delete(row_number):
-    sheets_service.delete_camp_channel(row_number)
+    try:
+        sheets_service.delete_camp_channel(row_number)
+    except RuntimeError as exc:
+        flash(_sheets_write_error_message(exc), "danger")
+        return redirect(url_for("admin.camp_channels_list"))
     flash("Канал КШ удален", "info")
     return redirect(url_for("admin.camp_channels_list"))
 

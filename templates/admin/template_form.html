@@ -16,6 +16,13 @@
       data-initial-lesson="{{ initial_lesson|default('', true)|e }}"
     >
       {{ form.hidden_tag() }}
+      {% if form.errors %}
+      <div class="alert alert-danger">
+        {% for field, errors in form.errors.items() %}
+          {% for error in errors %}<div>{{ field }}: {{ error }}</div>{% endfor %}
+        {% endfor %}
+      </div>
+      {% endif %}
       <div class="row g-3">
         <div class="col-md-6">{{ form.name.label(class="form-label") }}{{ form.name(class="form-control") }}</div>
         <div class="col-12">
