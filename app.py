@@ -413,7 +413,10 @@ def create_app():
         if wants_json:
             return jsonify({"ok": False, "error": "Внутренняя ошибка сервера"}), 500
         flash("Внутренняя ошибка сервера", "danger")
-        return redirect(url_for("admin.dashboard"))
+        # Не редиректить на /admin при ошибке в админке — иначе бесконечный цикл 500.
+        if request.path.startswith("/admin"):
+            return redirect(url_for("main.index"))
+        return redirect(url_for("auth.login"))
 
     return app
 

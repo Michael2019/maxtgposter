@@ -1,6 +1,6 @@
 from datetime import datetime, time, timezone
 
-from flask import Blueprint, flash, redirect, render_template, request, url_for
+from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
 
 from auth import admin_required, web_login_required
 from forms.admin_forms import ChannelForm, TemplateForm, UserForm, validate_template_location
@@ -36,11 +36,17 @@ def _sheets_write_error_message(exc):
 @web_login_required
 @admin_required
 def dashboard():
-    users = sheets_service.get_users()
-    templates = sheets_service.get_templates()
-    main_channels = sheets_service.get_main_channels()
-    camp_channels = sheets_service.get_camp_channels()
-    history_items = list_history(200)
+    try:
+        users = sheets_service.get_users()
+        templates = sheets_service.get_templates()
+        main_channels = sheets_service.get_main_channels()
+        camp_channels = sheets_service.get_camp_channels()
+        # Счётчик без запроса к Sheets — иначе админка падает/виснет при проблемах с API.
+        history_items = list_history(200, use_sheets=False)
+    except Exception as exc:
+        current_app.logger.exception("admin dashboard failed: %s", exc)
+        flash(f"Ошибка загрузки данных админки: {exc}", "danger")
+        users, templates, main_channels, camp_channels, history_items = [], [], [], [], []
     return render_template(
         "admin/dashboard.html",
         users_count=len(users),
@@ -466,13 +472,13 @@ def _enrich_history_items(items):
         summary = item.get("summary") or {}
         if isinstance(summary, dict):
             if summary.get("error"):
-                item["summary_short"] = str(summary.get("error"))[:120]
+                item["summary_short"] = str(summary.get("error") or "")[:120]
             elif summary.get("ok") is False:
                 parts = []
                 if summary.get("telegram_error"):
-                    parts.append(f"TG: {summary['telegram_error'][:60]}")
+                    parts.append(f"TG: {str(summary.get('telegram_error'))[:60]}")
                 if summary.get("max_error"):
-                    parts.append(f"MAX: {summary['max_error'][:60]}")
+                    parts.append(f"MAX: {str(summary.get('max_error'))[:60]}")
                 item["summary_short"] = "; ".join(parts) or "ошибка публикации"
             else:
                 item["summary_short"] = "OK"
@@ -487,14 +493,20 @@ def _enrich_history_items(items):
 def publish_history():
     start_date_raw, end_date_raw, start_dt, end_dt, filter_error = _parse_history_dates(request.args)
 
-    if filter_error:
-        items = list_history(500)
-    else:
-        items = list_history_between(start_dt=start_dt, end_dt=end_dt, limit=500)
+    try:
+        if filter_error:
+            items = list_history(500, use_sheets=True)
+        else:
+            items = list_history_between(start_dt=start_dt, end_dt=end_dt, limit=500, use_sheets=True)
+        items = _enrich_history_items(items)
+    except Exception as exc:
+        current_app.logger.exception("publish_history page failed: %s", exc)
+        flash("Не удалось загрузить историю. Проверьте лист publish_history в таблице.", "danger")
+        items = []
 
     return render_template(
         "admin/history.html",
-        items=_enrich_history_items(items),
+        items=items,
         start_date=start_date_raw,
         end_date=end_date_raw,
         filter_error=filter_error,

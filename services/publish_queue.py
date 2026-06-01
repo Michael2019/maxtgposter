@@ -99,7 +99,7 @@ def _read_history_file() -> List[dict]:
     if not _history_file.exists():
         return []
     try:
-        with open(_history_file, "r+", encoding="utf-8") as handle:
+        with open(_history_file, "r", encoding="utf-8") as handle:
             _file_lock(handle)
             try:
                 raw = handle.read().strip()
@@ -108,7 +108,15 @@ def _read_history_file() -> List[dict]:
                 data = json.loads(raw)
                 if not isinstance(data, list):
                     return []
-                return [_normalize_history_entry(x) for x in data if isinstance(x, dict)]
+                out = []
+                for x in data:
+                    if not isinstance(x, dict):
+                        continue
+                    try:
+                        out.append(_normalize_history_entry(x))
+                    except Exception as exc:
+                        logger.warning("publish history: skip bad row: %s", exc)
+                return out
             finally:
                 _file_unlock(handle)
     except (json.JSONDecodeError, OSError, ValueError) as exc:
@@ -126,7 +134,10 @@ def _write_history_file(items: List[dict]) -> None:
             try:
                 handle.write(payload)
                 handle.flush()
-                os.fsync(handle.fileno())
+                try:
+                    os.fsync(handle.fileno())
+                except OSError:
+                    pass
             finally:
                 _file_unlock(handle)
         tmp_path.replace(_history_file)
@@ -183,12 +194,16 @@ def _merge_history(*sources: List[dict]) -> List[dict]:
     return merged
 
 
-def list_history(limit: int = 100) -> List[dict]:
-    with _lock:
-        file_items = _read_history_file()
-    sheet_items = _read_history_sheets()
-    merged = _merge_history(file_items, sheet_items)
-    return merged[:limit]
+def list_history(limit: int = 100, *, use_sheets: bool = True) -> List[dict]:
+    try:
+        with _lock:
+            file_items = _read_history_file()
+        sheet_items = _read_history_sheets() if use_sheets else []
+        merged = _merge_history(file_items, sheet_items)
+        return merged[:limit]
+    except Exception as exc:
+        logger.exception("list_history failed: %s", exc)
+        return []
 
 
 def _parse_iso_datetime(value):
@@ -200,8 +215,8 @@ def _parse_iso_datetime(value):
         return None
 
 
-def list_history_between(start_dt=None, end_dt=None, limit: int = 500) -> List[dict]:
-    items = list_history(limit=limit)
+def list_history_between(start_dt=None, end_dt=None, limit: int = 500, *, use_sheets: bool = True) -> List[dict]:
+    items = list_history(limit=limit, use_sheets=use_sheets)
     if not start_dt and not end_dt:
         return items
     filtered = []

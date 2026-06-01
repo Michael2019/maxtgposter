@@ -410,44 +410,54 @@ class GoogleSheetsService:
     def get_publish_history(self, limit: int = 500) -> list:
         cache_key = "publish_history_records"
 
-        cached = self._cache_get(cache_key)
-        if cached is not None:
-            return cached[:limit]
-
-        sheet_name = self._publish_history_sheet_name()
-        sheet = self._get_sheet(sheet_name)
-        if not sheet:
-            self._cache_set(cache_key, [])
-            return []
         try:
-            records = sheet.get_all_records()
-        except Exception as e:
-            current_app.logger.exception("Sheets: publish_history read failed: %s", e)
-            return []
-        items = []
-        for row in records:
-            clean = {str(k).strip(): v for k, v in row.items()}
-            summary_raw = clean.get("summary_json") or clean.get("summary") or ""
-            summary = summary_raw
-            if isinstance(summary_raw, str) and summary_raw.strip().startswith("{"):
+            cached = self._cache_get(cache_key)
+            if cached is not None:
+                return cached[:limit]
+
+            sheet_name = self._publish_history_sheet_name()
+            sheet = self._get_sheet(sheet_name)
+            if not sheet:
+                self._cache_set(cache_key, [], timeout=PUBLISH_HISTORY_CACHE_TTL_SEC)
+                return []
+            try:
+                records = sheet.get_all_records()
+            except Exception as e:
+                current_app.logger.warning("Sheets: publish_history read failed: %s", e)
+                self._cache_set(cache_key, [], timeout=PUBLISH_HISTORY_CACHE_TTL_SEC)
+                return []
+            items = []
+            for row in records:
+                if not isinstance(row, dict):
+                    continue
                 try:
-                    summary = json.loads(summary_raw)
-                except json.JSONDecodeError:
-                    summary = {"note": summary_raw[:500]}
-            items.append(
-                {
-                    "id": str(clean.get("id") or ""),
-                    "created_at": str(clean.get("created_at") or ""),
-                    "finished_at": str(clean.get("finished_at") or ""),
-                    "status": str(clean.get("status") or ""),
-                    "user": {"username": str(clean.get("username") or "").strip()},
-                    "channel": str(clean.get("channel") or "").strip(),
-                    "summary": summary if isinstance(summary, dict) else {"note": str(summary)[:500]},
-                }
-            )
-        items.sort(key=lambda x: x.get("created_at") or "", reverse=True)
-        self._cache_set(cache_key, items, timeout=PUBLISH_HISTORY_CACHE_TTL_SEC)
-        return items[:limit]
+                    clean = {str(k).strip(): v for k, v in row.items() if k is not None}
+                    summary_raw = clean.get("summary_json") or clean.get("summary") or ""
+                    summary = summary_raw
+                    if isinstance(summary_raw, str) and summary_raw.strip().startswith("{"):
+                        try:
+                            summary = json.loads(summary_raw)
+                        except json.JSONDecodeError:
+                            summary = {"note": str(summary_raw)[:500]}
+                    items.append(
+                        {
+                            "id": str(clean.get("id") or ""),
+                            "created_at": str(clean.get("created_at") or ""),
+                            "finished_at": str(clean.get("finished_at") or ""),
+                            "status": str(clean.get("status") or ""),
+                            "user": {"username": str(clean.get("username") or "").strip()},
+                            "channel": str(clean.get("channel") or "").strip(),
+                            "summary": summary if isinstance(summary, dict) else {"note": str(summary)[:500]},
+                        }
+                    )
+                except Exception as row_exc:
+                    current_app.logger.warning("Sheets: skip publish_history row: %s", row_exc)
+            items.sort(key=lambda x: str(x.get("created_at") or ""), reverse=True)
+            self._cache_set(cache_key, items, timeout=PUBLISH_HISTORY_CACHE_TTL_SEC)
+            return items[:limit]
+        except Exception as e:
+            current_app.logger.exception("Sheets: get_publish_history failed: %s", e)
+            return []
 
 
 sheets_service = GoogleSheetsService()
