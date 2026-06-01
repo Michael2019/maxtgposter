@@ -11,6 +11,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
+from services.media_files import sniff_telegram_media_kind
+
 logger = logging.getLogger("app")
 
 MAX_UPLOADS_URL = "https://platform-api.max.ru/uploads"
@@ -195,14 +197,23 @@ def send_to_max(chat_id: str, text: Optional[str], files_data: Optional[List[Tup
 
     if files_data:
         for filename, content, mime_type in files_data:
-            mt = (mime_type or "").lower()
-            if "image" in mt or mt in ("image/jpeg", "image/png", "image/gif", "image/webp"):
+            if not content:
+                logger.warning("MAX: skip empty file %s", filename)
+                continue
+            kind = sniff_telegram_media_kind(filename or "", mime_type or "")
+            if kind == "photo":
                 file_type = "image"
-            elif "video" in mt or mt.startswith("video/"):
+            elif kind == "video":
                 file_type = "video"
             else:
-                logger.warning("MAX: skip unsupported mime %s for %s", mime_type, filename)
-                continue
+                mt = (mime_type or "").lower()
+                if "image" in mt:
+                    file_type = "image"
+                elif "video" in mt or mt.startswith("video/"):
+                    file_type = "video"
+                else:
+                    logger.warning("MAX: skip unsupported file %s (mime=%s)", filename, mime_type)
+                    continue
 
             att = _max_upload_one(session, auth_token, filename or "file", content, mime_type, file_type)
             if att:

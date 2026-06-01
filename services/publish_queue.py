@@ -121,7 +121,18 @@ def run_job_async(job_id, fn):
         try:
             result = fn()
             finished_at = _now_iso()
-            update_job(job_id, status="done", finished_at=finished_at, result=result)
+            status = "done"
+            if isinstance(result, dict) and result.get("ok") is False:
+                status = "failed"
+                update_job(
+                    job_id,
+                    status=status,
+                    finished_at=finished_at,
+                    result=result,
+                    error=str(result.get("error") or "publish failed"),
+                )
+            else:
+                update_job(job_id, status=status, finished_at=finished_at, result=result)
             with _lock:
                 created_at = _jobs.get(job_id, {}).get("created_at")
                 user = _jobs.get(job_id, {}).get("user")
@@ -131,7 +142,7 @@ def run_job_async(job_id, fn):
                     "id": job_id,
                     "created_at": created_at,
                     "finished_at": finished_at,
-                    "status": "done",
+                    "status": status,
                     "user": user,
                     "channel": payload.get("channel", ""),
                     "summary": result,

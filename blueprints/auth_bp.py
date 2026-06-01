@@ -14,7 +14,7 @@ def login():
     if form.validate_on_submit():
         user = auth.authenticate_user(form.username.data.strip(), form.password.data)
         if user:
-            session["user"] = user
+            session["user"] = auth.user_for_session(user)
             flash("Успешный вход", "success")
             next_url = request.args.get("next")
             return redirect(next_url or url_for("main.index"))

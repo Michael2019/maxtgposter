@@ -14,6 +14,8 @@ from typing import List, Optional, Tuple
 
 logger = logging.getLogger("app")
 
+TELEGRAM_MAX_BYTES = int(float(os.environ.get("TELEGRAM_MAX_UPLOAD_MB", "48")) * 1024 * 1024)
+
 # Расширения, которые считаем видео, если браузер отдал неверный MIME
 _VIDEO_EXT = (".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi", ".mpeg", ".mpg", ".3gp")
 _IMAGE_EXT = (
@@ -78,6 +80,12 @@ def prepare_files_for_publish(
     out: List[Tuple[str, bytes, str]] = []
     for filename, content, mime in files_data:
         fn = filename or "file"
+        if not content:
+            logger.warning("Skip empty upload: %s", fn)
+            continue
+        if len(content) > TELEGRAM_MAX_BYTES:
+            logger.warning("File too large for Telegram (%s bytes): %s", len(content), fn)
+            continue
         m = (mime or "application/octet-stream").lower()
         lower = fn.lower()
 
@@ -163,39 +171,44 @@ def _transcode_video_ffmpeg(filename: str, content: bytes) -> Optional[Tuple[str
         fd, out_path = tempfile.mkstemp(suffix=".mp4")
         os.close(fd)
 
-        cmd = [
-            ffmpeg,
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-y",
-            "-i",
-            in_path,
-            "-map",
-            "0:v:0",
-            "-map",
-            "0:a?",
-            "-c:v",
-            "libx264",
-            "-profile:v",
-            "high",
-            "-level",
-            "4.1",
-            "-pix_fmt",
-            "yuv420p",
-            "-movflags",
-            "+faststart",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "128k",
-            out_path,
-        ]
-        r = subprocess.run(cmd, capture_output=True, timeout=600)
+        def _run_ffmpeg(with_audio: bool) -> subprocess.CompletedProcess:
+            cmd = [
+                ffmpeg,
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-i",
+                in_path,
+                "-map",
+                "0:v:0",
+                "-c:v",
+                "libx264",
+                "-profile:v",
+                "high",
+                "-level",
+                "4.1",
+                "-pix_fmt",
+                "yuv420p",
+                "-movflags",
+                "+faststart",
+            ]
+            if with_audio:
+                cmd.extend(["-map", "0:a?", "-c:a", "aac", "-b:a", "128k"])
+            else:
+                cmd.append("-an")
+            cmd.append(out_path)
+            return subprocess.run(cmd, capture_output=True, timeout=600)
+
+        r = _run_ffmpeg(with_audio=True)
         if r.returncode != 0:
             err = (r.stderr or b"").decode("utf-8", errors="replace")[:800]
-            logger.warning("ffmpeg transcode failed for %s: %s", filename, err)
-            return None
+            if "does not contain" in err.lower() or "stream map" in err.lower():
+                logger.info("ffmpeg: retry without audio for %s", filename)
+                r = _run_ffmpeg(with_audio=False)
+            if r.returncode != 0:
+                logger.warning("ffmpeg transcode failed for %s: %s", filename, err)
+                return None
         with open(out_path, "rb") as f:
             out_bytes = f.read()
         if not out_bytes:

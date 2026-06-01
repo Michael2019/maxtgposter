@@ -3,6 +3,6 @@ services:
     name: tildatest
     env: python
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app
+    buildCommand: pip install -r requirements.txt && (command -v ffmpeg >/dev/null 2>&1 || (apt-get update -qq && apt-get install -y -qq ffmpeg))
+    startCommand: gunicorn app:app --timeout 300 --workers 2
     autoDeploy: true

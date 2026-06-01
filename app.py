@@ -5,7 +5,7 @@ import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
-from io import BytesIO, StringIO
+from io import StringIO
 
 import requests
 from flask import Flask, flash, jsonify, redirect, request, session, url_for
@@ -18,16 +18,14 @@ from blueprints.admin_bp import admin_bp
 from blueprints.auth_bp import auth_bp
 from blueprints.main_bp import main_bp
 from extensions import cache, csrf, jwt
-from services.media_files import ensure_telegram_friendly_videos, prepare_files_for_publish, sniff_telegram_media_kind
+from services.media_files import ensure_telegram_friendly_videos, prepare_files_for_publish
 from services.publish_max import send_to_max as max_send_message
+from services.publish_telegram import send_to_telegram
 from services.publish_queue import create_job, get_job, run_job_async
 from forms.post_constants import COMPENSATORY_CATEGORY
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 MAX_BOT_TOKEN = os.environ.get("MAX_BOT_TOKEN")
-TELEGRAM_API_BASE_URL = os.environ.get("TELEGRAM_API_BASE_URL", "https://api.telegram.org")
-TELEGRAM_PROXY_URL = os.environ.get("TELEGRAM_PROXY_URL")
-TELEGRAM_API_URL = f"{TELEGRAM_API_BASE_URL}/bot{BOT_TOKEN}" if BOT_TOKEN else ""
 SHEETS_CSV_URL = os.environ.get("SHEETS_CSV_URL")
 _templates_http = requests.Session()
 
@@ -158,190 +156,6 @@ def build_post_text_payload(form_data, role):
     return trim_text_to_limit(full_text, signature, 4096)
 
 
-def _rewind_multipart_files(files):
-    """Перед повторной отправкой в Telegram вернуть указатели в BytesIO на начало.
-
-    Иначе после таймаута/обрыва часть потоков уже прочитана — retry шлёт пустые файлы
-    и API отвечает «file must be non-empty».
-    """
-    if not files:
-        return
-
-    def rewind_obj(fobj):
-        if fobj is not None and hasattr(fobj, "seek"):
-            try:
-                fobj.seek(0)
-            except (OSError, ValueError):
-                pass
-
-    if isinstance(files, dict):
-        for val in files.values():
-            if isinstance(val, (list, tuple)) and len(val) >= 2:
-                rewind_obj(val[1])
-    elif isinstance(files, (list, tuple)):
-        for item in files:
-            if not isinstance(item, (list, tuple)) or len(item) < 2:
-                continue
-            inner = item[1]
-            if isinstance(inner, (list, tuple)) and len(inner) >= 2:
-                rewind_obj(inner[1])
-
-
-# ============= ОТПРАВКА В TELEGRAM =============
-def send_to_telegram(chat_id, text, files_data):
-    logger = logging.getLogger("app")
-    telegram_proxies = None
-    if TELEGRAM_PROXY_URL:
-        telegram_proxies = {"http": TELEGRAM_PROXY_URL, "https": TELEGRAM_PROXY_URL}
-        logger.info("Telegram: proxy enabled")
-
-    def tg_post(endpoint, *, data=None, files=None, timeout=(15, 40), retries=2):
-        last_error = None
-        for attempt in range(1, retries + 1):
-            try:
-                logger.info("Telegram request endpoint=%s attempt=%s", endpoint, attempt)
-                return requests.post(
-                    f"{TELEGRAM_API_URL}/{endpoint}",
-                    data=data,
-                    files=files,
-                    timeout=timeout,
-                    proxies=telegram_proxies,
-                )
-            except requests.Timeout as e:
-                last_error = e
-                logger.warning("Telegram timeout endpoint=%s attempt=%s", endpoint, attempt)
-                if attempt < retries:
-                    _rewind_multipart_files(files)
-                    time.sleep(1.2 * attempt)
-            except requests.RequestException as e:
-                last_error = e
-                logger.warning("Telegram request exception endpoint=%s attempt=%s error=%s", endpoint, attempt, e)
-                if attempt < retries:
-                    _rewind_multipart_files(files)
-                    time.sleep(1.2 * attempt)
-        if isinstance(last_error, requests.Timeout):
-            raise requests.Timeout()
-        raise requests.RequestException(last_error or "Unknown Telegram request error")
-
-    try:
-        print(f"📱 send_to_telegram: chat_id={chat_id}, files={len(files_data)}")
-        if files_data:
-            full_text = text or ""
-            caption_limit = 1024
-            caption_text = full_text[:caption_limit] if full_text else ""
-            remainder_text = full_text[caption_limit:] if len(full_text) > caption_limit else ""
-            remainder_chunks = split_text_chunks(remainder_text, 4096)
-
-            media = []
-            attachments = {}
-            media_idx = 0
-            for filename, content, mime_type in files_data:
-                kind = sniff_telegram_media_kind(filename, mime_type)
-                if kind == "photo":
-                    media_type = "photo"
-                elif kind == "video":
-                    media_type = "video"
-                else:
-                    if len(files_data) == 1:
-                        print(f"📤 Telegram: отправка как документ ({filename})...")
-                        payload_doc = {
-                            "chat_id": chat_id,
-                            "caption": caption_text or "",
-                            "parse_mode": "HTML",
-                        }
-                        files_doc = {
-                            "document": (
-                                filename or "file.bin",
-                                BytesIO(content),
-                                mime_type or "application/octet-stream",
-                            )
-                        }
-                        response = tg_post("sendDocument", data=payload_doc, files=files_doc, timeout=(15, 120), retries=2)
-                        print(f" Telegram response: {response.status_code} - {response.text[:200]}")
-                        if response.status_code != 200:
-                            return {"ok": False, "error": response.text}
-                        if remainder_chunks:
-                            for chunk in remainder_chunks:
-                                msg_resp = tg_post(
-                                    "sendMessage",
-                                    data={"chat_id": chat_id, "text": chunk, "parse_mode": "HTML"},
-                                    timeout=(15, 35),
-                                    retries=2,
-                                )
-                                if msg_resp.status_code != 200:
-                                    return {"ok": False, "error": f"Continuation message failed: {msg_resp.text}"}
-                        return response.json()
-                    print(f" ⚠️ файл {filename} пропущен (неподдерживаемый тип {mime_type})")
-                    continue
-                attach_name = f"file{media_idx}"
-                media_item = {
-                    "type": media_type,
-                    "media": f"attach://{attach_name}",
-                }
-                if media_idx == 0 and caption_text:
-                    media_item["caption"] = caption_text
-                    media_item["parse_mode"] = "HTML"
-                media.append(media_item)
-                attachments[attach_name] = (filename, BytesIO(content), mime_type)
-                media_idx += 1
-
-            if not media:
-                return {"ok": False, "error": "Нет поддерживаемых файлов"}
-
-            if len(media) == 1:
-                only_item = media[0]
-                only_name = next(iter(attachments))
-                fname, stream, mime = attachments[only_name]
-                endpoint = "sendPhoto" if only_item["type"] == "photo" else "sendVideo"
-                payload = {"chat_id": chat_id, "caption": caption_text or "", "parse_mode": "HTML"}
-                files_for_tg = {"photo" if endpoint == "sendPhoto" else "video": (fname, stream, mime)}
-                print(f"📤 Telegram: отправка single media ({endpoint})...")
-                response = tg_post(endpoint, data=payload, files=files_for_tg, timeout=(30, 120), retries=2)
-            else:
-                payload = {'chat_id': chat_id, 'media': json.dumps(media[:10])}
-                files_for_tg = [(name, (fname, stream, mime)) for name, (fname, stream, mime) in attachments.items()]
-                print("📤 Telegram: отправка media group...")
-                # Большие фото с телефона: даём больше времени на запись тела запроса (write timeout).
-                response = tg_post("sendMediaGroup", data=payload, files=files_for_tg, timeout=(45, 180), retries=2)
-            print(f" Telegram response: {response.status_code} - {response.text[:200]}")
-            if response.status_code != 200:
-                return {"ok": False, "error": response.text}
-
-            # If the text is longer than media caption limit, send the rest in follow-up messages.
-            if remainder_chunks:
-                print(f"📤 Telegram: отправка продолжения текста chunks={len(remainder_chunks)}")
-                for chunk in remainder_chunks:
-                    msg_resp = tg_post(
-                        "sendMessage",
-                        data={"chat_id": chat_id, "text": chunk, "parse_mode": "HTML"},
-                        timeout=(15, 35),
-                        retries=2,
-                    )
-                    if msg_resp.status_code != 200:
-                        print(f" Telegram continuation failed: {msg_resp.status_code} - {msg_resp.text[:200]}")
-                        return {"ok": False, "error": f"Continuation message failed: {msg_resp.text}"}
-
-            return response.json()
-        elif text:
-            payload = {'chat_id': chat_id, 'text': text, 'parse_mode': 'HTML'}
-            print("📤 Telegram: отправка text message...")
-            response = tg_post("sendMessage", data=payload, timeout=(15, 35), retries=2)
-            print(f" Telegram response: {response.status_code} - {response.text[:200]}")
-            return response.json() if response.status_code == 200 else {"ok": False, "error": response.text}
-        else:
-            return {"ok": False, "error": "Нет контента"}
-    except requests.Timeout:
-        print("⏱️ Telegram timeout")
-        return {"ok": False, "error": "Telegram timeout"}
-    except requests.RequestException as e:
-        print(f"🌐 Telegram request error: {e}")
-        return {"ok": False, "error": f"Telegram request error: {e}"}
-    except Exception as e:
-        print(f"🔥 Ошибка в send_to_telegram: {e}")
-        import traceback
-        traceback.print_exc()
-        return {"ok": False, "error": str(e)}
-
 def _resolve_user():
     try:
         verify_jwt_in_request()
@@ -446,13 +260,27 @@ def create_app():
                 time_val,
             )
 
+            max_files = int(os.environ.get("POST_MAX_MEDIA_FILES", "5"))
             files_data = []
             for f in uploaded_files:
                 if not f or not getattr(f, "filename", None):
                     continue
+                if len(files_data) >= max_files:
+                    msg = f"Можно прикрепить не более {max_files} файлов"
+                    if wants_json:
+                        return jsonify({"error": msg, "ok": False}), 400
+                    flash(msg, "danger")
+                    return _form_redirect_with_flash()
                 content = f.read()
                 if not content:
                     continue
+                max_mb = float(os.environ.get("TELEGRAM_MAX_UPLOAD_MB", "48"))
+                if len(content) > int(max_mb * 1024 * 1024):
+                    msg = f"Файл {f.filename} слишком большой (лимит {int(max_mb)} МБ)"
+                    if wants_json:
+                        return jsonify({"error": msg, "ok": False}), 400
+                    flash(msg, "danger")
+                    return _form_redirect_with_flash()
                 files_data.append((f.filename, content, f.mimetype))
                 app.logger.info(
                     "POST /post: file loaded name=%s size=%s mime=%s",
@@ -460,6 +288,7 @@ def create_app():
                     len(content),
                     f.mimetype,
                 )
+            uploads_before_prepare = len(files_data)
             files_data = prepare_files_for_publish(files_data)
 
             if not telegram_chat_id:
@@ -471,6 +300,13 @@ def create_app():
 
             final_text = build_post_text_payload(request.form, role)
             app.logger.info("POST /post: final_text_len=%s", len(final_text))
+
+            if uploads_before_prepare > 0 and not files_data:
+                msg = "Вложения не приняты: файл пустой, слишком большой или неподдерживаемый формат"
+                if wants_json:
+                    return jsonify({"error": msg, "ok": False}), 400
+                flash(msg, "danger")
+                return _form_redirect_with_flash()
 
             if not (final_text or "").strip() and not files_data:
                 msg = "Добавьте текст поста или вложения"
@@ -510,17 +346,26 @@ def create_app():
                     fut_mx = pool.submit(_run_max)
                     tg_result = fut_tg.result()
                     max_result = fut_mx.result()
-                all_ok = (tg_result.get("ok", False) or tg_result.get("skipped", False)) and (
-                    max_result.get("ok", False) or max_result.get("skipped", False)
-                )
-                return {"ok": all_ok, "telegram": tg_result, "max": max_result}
+                tg_ok = bool(tg_result.get("ok"))
+                max_ok = bool(max_result.get("ok") or max_result.get("skipped"))
+                if not tg_ok or not max_ok:
+                    parts = []
+                    if not tg_ok:
+                        parts.append(f"Telegram: {tg_result.get('error') or tg_result.get('description') or 'ошибка'}")
+                    if not max_ok:
+                        parts.append(f"MAX: {max_result.get('error') or 'ошибка'}")
+                    raise RuntimeError("; ".join(parts))
+                return {"ok": True, "telegram": tg_result, "max": max_result}
 
             run_job_async(job_id, _publish)
 
             if wants_json:
                 return jsonify({"ok": True, "queued": True, "job_id": job_id}), 202
 
-            flash(f"Публикация поставлена в очередь. ID задачи: {job_id[:8]}", "info")
+            flash(
+                f"Публикация в очереди (ID {job_id[:8]}). Если пост не появился — смотрите «История» в админке.",
+                "info",
+            )
             return _form_redirect_with_flash()
         except Exception as e:
             app.logger.exception("POST /post: unhandled error: %s", e)

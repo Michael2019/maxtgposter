@@ -17,6 +17,16 @@ def hash_password(password):
     normalized_password = _normalize_text(password)
     return hashlib.sha256(normalized_password.encode("utf-8")).hexdigest()
 
+SESSION_USER_KEYS = ("username", "role", "family", "email", "is_admin", "row_number", "id")
+
+
+def user_for_session(user):
+    """Убрать чувствительные поля перед записью в cookie-сессию."""
+    if not user:
+        return {}
+    return {k: user[k] for k in SESSION_USER_KEYS if k in user and k != "password_hash"}
+
+
 def get_users_from_sheets():
     users = sheets_service.get_users()
     current_app.logger.info("Auth: users loaded from storage: count=%s", len(users))

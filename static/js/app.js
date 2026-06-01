@@ -113,9 +113,23 @@
     }
   }
 
+  const MAX_MEDIA_FILES = 5;
+
+  const validateMediaInput = () => {
+    const mediaInput = document.getElementById("media_files");
+    if (!mediaInput || !mediaInput.files) return true;
+    if (mediaInput.files.length > MAX_MEDIA_FILES) {
+      alert(`Можно прикрепить не более ${MAX_MEDIA_FILES} файлов.`);
+      mediaInput.value = "";
+      return false;
+    }
+    return true;
+  };
+
   channelSelect?.addEventListener("change", syncChannelIds);
   categorySelect?.addEventListener("change", applyCompensatoryUi);
   moduleSelect?.addEventListener("change", updateLessons);
+  document.getElementById("media_files")?.addEventListener("change", validateMediaInput);
 
   syncChannelIds();
   if (categorySelect) applyCompensatoryUi();
@@ -179,6 +193,7 @@
           return;
         }
       }
+      if (!validateMediaInput()) return;
       if (!postForm.reportValidity()) return;
       await loadPreview();
       openPreview();
