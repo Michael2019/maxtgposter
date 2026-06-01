@@ -131,7 +131,21 @@ pip install -r requirements.txt
 - `telegram_chat_id`
 - `max_chat_id`
 
-### 5.5 Структура листа `camp_channels`
+### 5.5 Структура листа `publish_history` (история отправок в админке)
+
+Колонки (строка 1):
+
+- `id`
+- `created_at`
+- `finished_at`
+- `status` (`done` / `failed`)
+- `username`
+- `channel`
+- `summary_json` (краткий JSON результата)
+
+Лист создаётся автоматически при первой записи, если вкладка уже есть в таблице с таким именем (`GOOGLE_PUBLISH_HISTORY_SHEET`, по умолчанию `publish_history`).
+
+### 5.6 Структура листа `camp_channels`
 
 Такая же, как у `channels`:
 
@@ -141,7 +155,7 @@ pip install -r requirements.txt
 - `telegram_chat_id`
 - `max_chat_id`
 
-### 5.6 Как получить `password_hash` для пользователя
+### 5.7 Как получить `password_hash` для пользователя
 
 Пароль в таблице должен быть в SHA256.
 

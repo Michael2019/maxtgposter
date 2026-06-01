@@ -1,6 +1,7 @@
 import csv
 import hashlib
 import json
+import os
 from io import StringIO
 
 import gspread
@@ -13,6 +14,7 @@ from services.cache_helpers import notify_template_changed
 
 
 SHEETS_CACHE_TTL_SEC = 1800
+PUBLISH_HISTORY_CACHE_TTL_SEC = int(os.environ.get("PUBLISH_HISTORY_CACHE_TTL_SEC", "15"))
 
 # Значения payload → возможные имена колонок в таблице
 _PAYLOAD_HEADER_ALIASES = {
@@ -249,8 +251,8 @@ class GoogleSheetsService:
     def _cache_get(self, key):
         return cache.get(key)
 
-    def _cache_set(self, key, value):
-        cache.set(key, value, timeout=SHEETS_CACHE_TTL_SEC)
+    def _cache_set(self, key, value, timeout=None):
+        cache.set(key, value, timeout=timeout if timeout is not None else SHEETS_CACHE_TTL_SEC)
 
     def _cache_delete(self, key):
         cache.delete(key)
@@ -367,6 +369,85 @@ class GoogleSheetsService:
 
     def delete_camp_channel(self, row_number):
         self._delete_channel(current_app.config.get("GOOGLE_CAMP_CHANNELS_SHEET"), row_number, "channels_records_camp")
+
+    def _publish_history_sheet_name(self):
+        return current_app.config.get("GOOGLE_PUBLISH_HISTORY_SHEET", "publish_history")
+
+    def append_publish_history(self, entry: dict):
+        """Добавить строку в лист publish_history (устойчивое хранение для админки)."""
+        sheet_name = self._publish_history_sheet_name()
+        sheet = self._get_sheet(sheet_name)
+        if not sheet:
+            current_app.logger.warning(
+                "Sheets: history sheet %r not found — create tab with columns: "
+                "id, created_at, finished_at, status, username, channel, summary_json",
+                sheet_name,
+            )
+            return
+        user = entry.get("user") or {}
+        username = user.get("username") if isinstance(user, dict) else str(user or "")
+        summary = entry.get("summary") or {}
+        try:
+            summary_json = json.dumps(summary, ensure_ascii=False)[:2000]
+        except (TypeError, ValueError):
+            summary_json = str(summary)[:2000]
+        row_map = {
+            "id": entry.get("id", ""),
+            "created_at": entry.get("created_at", ""),
+            "finished_at": entry.get("finished_at", ""),
+            "status": entry.get("status", ""),
+            "username": username,
+            "channel": entry.get("channel", ""),
+            "summary_json": summary_json,
+        }
+        headers = self._worksheet_headers(sheet)
+        if not headers:
+            headers = list(row_map.keys())
+        row = [row_map.get(h, "") for h in headers]
+        sheet.append_row(row, value_input_option="USER_ENTERED")
+        self._cache_delete("publish_history_records")
+
+    def get_publish_history(self, limit: int = 500) -> list:
+        cache_key = "publish_history_records"
+
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached[:limit]
+
+        sheet_name = self._publish_history_sheet_name()
+        sheet = self._get_sheet(sheet_name)
+        if not sheet:
+            self._cache_set(cache_key, [])
+            return []
+        try:
+            records = sheet.get_all_records()
+        except Exception as e:
+            current_app.logger.exception("Sheets: publish_history read failed: %s", e)
+            return []
+        items = []
+        for row in records:
+            clean = {str(k).strip(): v for k, v in row.items()}
+            summary_raw = clean.get("summary_json") or clean.get("summary") or ""
+            summary = summary_raw
+            if isinstance(summary_raw, str) and summary_raw.strip().startswith("{"):
+                try:
+                    summary = json.loads(summary_raw)
+                except json.JSONDecodeError:
+                    summary = {"note": summary_raw[:500]}
+            items.append(
+                {
+                    "id": str(clean.get("id") or ""),
+                    "created_at": str(clean.get("created_at") or ""),
+                    "finished_at": str(clean.get("finished_at") or ""),
+                    "status": str(clean.get("status") or ""),
+                    "user": {"username": str(clean.get("username") or "").strip()},
+                    "channel": str(clean.get("channel") or "").strip(),
+                    "summary": summary if isinstance(summary, dict) else {"note": str(summary)[:500]},
+                }
+            )
+        items.sort(key=lambda x: x.get("created_at") or "", reverse=True)
+        self._cache_set(cache_key, items, timeout=PUBLISH_HISTORY_CACHE_TTL_SEC)
+        return items[:limit]
 
 
 sheets_service = GoogleSheetsService()

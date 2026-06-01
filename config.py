@@ -24,6 +24,7 @@ class Config:
     GOOGLE_TEMPLATES_SHEET = os.environ.get("GOOGLE_TEMPLATES_SHEET", "templates")
     GOOGLE_CHANNELS_SHEET = os.environ.get("GOOGLE_CHANNELS_SHEET", "channels")
     GOOGLE_CAMP_CHANNELS_SHEET = os.environ.get("GOOGLE_CAMP_CHANNELS_SHEET", "camp_channels")
+    GOOGLE_PUBLISH_HISTORY_SHEET = os.environ.get("GOOGLE_PUBLISH_HISTORY_SHEET", "publish_history")
 
     # Caching
     CACHE_TYPE = "SimpleCache"

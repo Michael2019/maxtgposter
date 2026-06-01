@@ -449,6 +449,38 @@ def camp_channels_delete(row_number):
     return redirect(url_for("admin.camp_channels_list"))
 
 
+def _format_history_datetime(iso_value: str) -> str:
+    if not iso_value:
+        return "—"
+    try:
+        dt = datetime.fromisoformat(str(iso_value).replace("Z", "+00:00"))
+        return dt.strftime("%d.%m.%Y %H:%M")
+    except (TypeError, ValueError):
+        return str(iso_value)[:19]
+
+
+def _enrich_history_items(items):
+    for item in items:
+        item["created_at_display"] = _format_history_datetime(item.get("created_at"))
+        item["finished_at_display"] = _format_history_datetime(item.get("finished_at"))
+        summary = item.get("summary") or {}
+        if isinstance(summary, dict):
+            if summary.get("error"):
+                item["summary_short"] = str(summary.get("error"))[:120]
+            elif summary.get("ok") is False:
+                parts = []
+                if summary.get("telegram_error"):
+                    parts.append(f"TG: {summary['telegram_error'][:60]}")
+                if summary.get("max_error"):
+                    parts.append(f"MAX: {summary['max_error'][:60]}")
+                item["summary_short"] = "; ".join(parts) or "ошибка публикации"
+            else:
+                item["summary_short"] = "OK"
+        else:
+            item["summary_short"] = str(summary)[:120]
+    return items
+
+
 @admin_bp.route("/history")
 @web_login_required
 @admin_required
@@ -462,10 +494,11 @@ def publish_history():
 
     return render_template(
         "admin/history.html",
-        items=items,
+        items=_enrich_history_items(items),
         start_date=start_date_raw,
         end_date=end_date_raw,
         filter_error=filter_error,
+        history_total=len(items),
     )
 
 

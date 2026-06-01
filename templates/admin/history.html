@@ -5,8 +5,14 @@
   <div class="d-flex align-items-center gap-2 flex-wrap">
     <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('admin.dashboard') }}">← К админке</a>
     <h1 class="h4 mb-0">История отправок</h1>
+    <span class="badge text-bg-secondary">{{ history_total }} записей</span>
   </div>
 </div>
+
+<p class="text-muted small mb-3">
+  История сохраняется в Google Sheets (лист <code>publish_history</code>) и локальный файл.
+  После деплоя на Render старые записи из памяти сервера не переносятся — смотрите таблицу.
+</p>
 
 <div class="card border-0 shadow-sm mb-3">
   <div class="card-body">
@@ -19,7 +25,7 @@
         <label class="form-label mb-1">По дату</label>
         <input type="date" name="end_date" class="form-control" value="{{ end_date or '' }}">
       </div>
-      <div class="col-sm-4 col-md-6 d-flex gap-2">
+      <div class="col-sm-4 col-md-6 d-flex gap-2 flex-wrap">
         <button type="submit" class="btn btn-outline-primary">Применить фильтр</button>
         <button
           type="submit"
@@ -40,14 +46,16 @@
 </div>
 
 <div class="table-responsive card border-0 shadow-sm">
-  <table class="table mb-0">
+  <table class="table mb-0 align-middle">
     <thead>
       <tr>
         <th>ID</th>
         <th>Пользователь</th>
+        <th>Канал</th>
         <th>Статус</th>
         <th>Создано</th>
         <th>Завершено</th>
+        <th>Итог</th>
       </tr>
     </thead>
     <tbody>
@@ -55,12 +63,22 @@
       <tr>
         <td><code>{{ item.get('id', '')[:8] }}</code></td>
         <td>{{ item.get('user', {}).get('username', '—') }}</td>
-        <td>{{ item.get('status', '') }}</td>
-        <td>{{ item.get('created_at', '') }}</td>
-        <td>{{ item.get('finished_at', '') }}</td>
+        <td>{{ item.get('channel', '—') }}</td>
+        <td>
+          {% if item.get('status') == 'done' %}
+            <span class="badge text-bg-success">done</span>
+          {% elif item.get('status') == 'failed' %}
+            <span class="badge text-bg-danger">failed</span>
+          {% else %}
+            <span class="badge text-bg-secondary">{{ item.get('status', '') }}</span>
+          {% endif %}
+        </td>
+        <td class="text-nowrap small">{{ item.get('created_at_display', '') }}</td>
+        <td class="text-nowrap small">{{ item.get('finished_at_display', '') }}</td>
+        <td class="small text-muted">{{ item.get('summary_short', '') }}</td>
       </tr>
       {% else %}
-      <tr><td colspan="5" class="text-muted">Пока нет отправок</td></tr>
+      <tr><td colspan="7" class="text-muted">Пока нет отправок за выбранный период</td></tr>
       {% endfor %}
     </tbody>
   </table>
