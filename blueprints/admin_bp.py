@@ -3,7 +3,7 @@ from datetime import datetime, time, timezone
 from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
 
 from auth import admin_required, web_login_required
-from forms.admin_forms import ChannelForm, TemplateForm, UserForm, validate_template_location
+from forms.admin_forms import ChannelForm, TemplateForm, UserForm, sheet_cell_str, validate_template_location
 from services.publish_queue import list_history, list_history_between
 from services.sheets import sheets_service
 
@@ -226,16 +226,38 @@ def templates_create():
     return render_template("admin/template_form.html", form=form, mode="create")
 
 
+def _template_form_data(tpl: dict) -> dict:
+    return {
+        "name": sheet_cell_str(tpl.get("name")),
+        "post_text": sheet_cell_str(tpl.get("post_text")),
+    }
+
+
+def _template_initial_location(tpl: dict) -> tuple:
+    return (
+        sheet_cell_str(tpl.get("category")),
+        sheet_cell_str(tpl.get("module")),
+        sheet_cell_str(tpl.get("lesson")),
+    )
+
+
 @admin_bp.route("/templates/<int:row_number>/edit", methods=["GET", "POST"])
 @web_login_required
 @admin_required
 def templates_edit(row_number):
-    templates = sheets_service.get_templates()
-    tpl = next((x for x in templates if int(x.get("row_number", 0)) == row_number), None)
-    if not tpl:
-        flash("Шаблон не найден", "danger")
+    try:
+        templates = sheets_service.get_templates()
+        tpl = next((x for x in templates if int(x.get("row_number", 0)) == row_number), None)
+        if not tpl:
+            flash("Шаблон не найден", "danger")
+            return redirect(url_for("admin.templates_list"))
+        init_category, init_module, init_lesson = _template_initial_location(tpl)
+        form = TemplateForm(data=_template_form_data(tpl))
+    except Exception as exc:
+        current_app.logger.exception("templates_edit load failed row=%s: %s", row_number, exc)
+        flash(f"Не удалось открыть шаблон: {exc}", "danger")
         return redirect(url_for("admin.templates_list"))
-    form = TemplateForm(data=tpl)
+
     if form.validate_on_submit():
         category = request.form.get("category", "").strip()
         module = request.form.get("module", "").strip()
@@ -283,9 +305,9 @@ def templates_edit(row_number):
         form=form,
         mode="edit",
         row_number=row_number,
-        initial_category=(tpl.get("category") or "").strip(),
-        initial_module=(tpl.get("module") or "").strip(),
-        initial_lesson=(tpl.get("lesson") or "").strip(),
+        initial_category=init_category,
+        initial_module=init_module,
+        initial_lesson=init_lesson,
     )
 
 

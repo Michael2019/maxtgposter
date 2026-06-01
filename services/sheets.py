@@ -192,11 +192,21 @@ class GoogleSheetsService:
         self._cache_set(cache_key, records)
         return records
 
+    def _normalize_template_fields(self, row: dict) -> dict:
+        """module/lesson в Sheets часто приходят как числа — приводим к строкам."""
+        from forms.admin_forms import sheet_cell_str
+
+        out = dict(row)
+        for field in ("name", "category", "module", "lesson", "post_text"):
+            if field in out:
+                out[field] = sheet_cell_str(out.get(field))
+        return out
+
     def get_templates(self):
         cache_key = "template_records"
         cached = self._cache_get(cache_key)
         if cached is not None:
-            return cached
+            return [self._normalize_template_fields(r) for r in cached]
         sheet = self._get_sheet(current_app.config.get("GOOGLE_TEMPLATES_SHEET"))
         if not sheet:
             records = self._read_csv_templates_fallback()
@@ -206,6 +216,7 @@ class GoogleSheetsService:
             except Exception as e:
                 current_app.logger.exception("Sheets: templates worksheet read failed: %s", e)
                 records = self._read_csv_templates_fallback()
+        records = [self._normalize_template_fields(r) for r in records]
         self._cache_set(cache_key, records)
         return records
 

@@ -48,11 +48,21 @@ ROBIK_MONTHS = (
 )
 
 
+def sheet_cell_str(value) -> str:
+    """Значение ячейки Sheets → строка (числа 1 / 1.0 из таблицы не ломают .strip())."""
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if text.endswith(".0") and text[:-2].isdigit():
+        return text[:-2]
+    return text
+
+
 def validate_template_location(category: str, module: str, lesson: str) -> Tuple[bool, Optional[str]]:
     """Проверка соответствия категории, модуля и занятия правилам формы «Занятия»."""
-    category = (category or "").strip()
-    module = (module or "").strip()
-    lesson = (lesson or "").strip()
+    category = sheet_cell_str(category)
+    module = sheet_cell_str(module)
+    lesson = sheet_cell_str(lesson)
     if not category:
         return False, "Выберите категорию"
     if category not in VALID_TEMPLATE_CATEGORIES:
