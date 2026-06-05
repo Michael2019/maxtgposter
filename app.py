@@ -398,6 +398,76 @@ def create_app():
             return jsonify({"ok": False, "error": "Job not found"}), 404
         return jsonify({"ok": True, "job": job}), 200
 
+    @app.route("/api/service/publish", methods=["POST"])
+    @csrf.exempt
+    def service_publish():
+        """Публикация с платформы Мастер Кода (секрет = JWT_SECRET_KEY)."""
+        secret = request.headers.get("X-Poster-Secret", "")
+        expected = os.environ.get("JWT_SECRET_KEY", "")
+        if not expected or secret != expected:
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        service_user = (request.headers.get("X-Poster-User") or "mk-platform").strip()
+        service_role = (request.headers.get("X-Poster-Role") or service_user).strip()
+
+        telegram_chat_id = request.form.get("chat_id", "").strip()
+        max_chat_id = request.form.get("max_chat_id", "").strip()
+        channel = request.form.get("channel", "").strip()
+        uploaded_files = request.files.getlist("media_files")
+        max_files = int(os.environ.get("POST_MAX_MEDIA_FILES", "5"))
+        files_data = []
+        for f in uploaded_files:
+            if not f or not getattr(f, "filename", None):
+                continue
+            if len(files_data) >= max_files:
+                return jsonify({"error": f"Можно прикрепить не более {max_files} файлов", "ok": False}), 400
+            content = f.read()
+            if content:
+                files_data.append((f.filename, content, f.mimetype))
+        files_data = prepare_files_for_publish(files_data)
+        if not telegram_chat_id:
+            return jsonify({"error": "Не указан ID канала Telegram", "ok": False}), 400
+        final_text = build_post_text_payload(request.form, service_role)
+        if not (final_text or "").strip() and not files_data:
+            return jsonify({"error": "Добавьте текст поста или вложения", "ok": False}), 400
+        payload = {
+            "telegram_chat_id": telegram_chat_id,
+            "max_chat_id": max_chat_id,
+            "channel": channel or telegram_chat_id,
+            "text": final_text,
+            "files_data": files_data,
+        }
+        job_id = create_job(payload, {"username": service_user, "role": service_role})
+
+        def _publish():
+            files_for_send = ensure_telegram_friendly_videos(payload["files_data"])
+
+            def _run_telegram():
+                return send_to_telegram(payload["telegram_chat_id"], payload["text"], files_for_send)
+
+            def _run_max():
+                if payload["max_chat_id"] and MAX_BOT_TOKEN:
+                    return max_send_message(
+                        payload["max_chat_id"], payload["text"], files_for_send, MAX_BOT_TOKEN
+                    )
+                return {"ok": False, "skipped": True}
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                tg_result = pool.submit(_run_telegram).result()
+                max_result = pool.submit(_run_max).result()
+            tg_ok = bool(tg_result.get("ok"))
+            max_ok = bool(max_result.get("ok") or max_result.get("skipped"))
+            if not tg_ok or not max_ok:
+                parts = []
+                if not tg_ok:
+                    parts.append(f"Telegram: {tg_result.get('error') or 'ошибка'}")
+                if not max_ok:
+                    parts.append(f"MAX: {max_result.get('error') or 'ошибка'}")
+                raise RuntimeError("; ".join(parts))
+            return {"ok": True, "telegram": tg_result, "max": max_result}
+
+        run_job_async(job_id, _publish)
+        return jsonify({"ok": True, "queued": True, "job_id": job_id}), 202
+
     from services.cache_helpers import register_template_change_hook
 
     register_template_change_hook(clear_template_csv_cache)
